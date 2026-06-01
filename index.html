@@ -23,7 +23,7 @@
 
     <div class="status-box">
         <p>Status WebRTC: <span id="statusWebRTC" class="status">Desconectado</span></p>
-        <p>Status ESP32 (Bluetooth): <span id="statusBluetooth" class="status">Desconectado</span></p>
+        <p>Status ESP32 (Bluetooth): <span id="statusBluetooth" class="status">Desconectado (Ignorado no Teste)</span></p>
         <p>Último Comando: <span id="txtComando">-</span></p>
     </div>
 
@@ -33,17 +33,17 @@
     </div>
 
     <script>
-        // --- ADICIONE SUAS CREDENCIAIS DO FIREBASE AQUI ---
+        // --- CREDENCIAIS DO SEU PROJETO CONFIGURADAS ---
         const firebaseConfig = {
-  apiKey: "AIzaSyAPJOs-lOFuA0zqZrJKmdrWrSr4Vf2dNx0",
-  authDomain: "robo-webrtc-7b32b.firebaseapp.com",
-  databaseURL: "https://robo-webrtc-7b32b-default-rtdb.firebaseio.com",
-  projectId: "robo-webrtc-7b32b",
-  storageBucket: "robo-webrtc-7b32b.firebasestorage.app",
-  messagingSenderId: "488205904754",
-  appId: "1:488205904754:web:52a95187cb2896da5d8beb",
-  measurementId: "G-N5F97EE30J"
-};
+            apiKey: "AIzaSyAPJOs-lOFuA0zqZrJKmdrWrSr4Vf2dNx0",
+            authDomain: "robo-webrtc-7b32b.firebaseapp.com",
+            databaseURL: "https://robo-webrtc-7b32b-default-rtdb.firebaseio.com",
+            projectId: "robo-webrtc-7b32b",
+            storageBucket: "robo-webrtc-7b32b.firebasestorage.app",
+            messagingSenderId: "488205904754",
+            appId: "1:488205904754:web:52a95187cb2896da5d8beb",
+            measurementId: "G-N5F97EE30J"
+        };
         firebase.initializeApp(firebaseConfig);
         const database = firebase.database();
 
@@ -73,7 +73,9 @@
                 }
                 
                 await iniciarCameras();
-               // await conectarESP32();
+                
+                // LINHA COMENTADA PARA TESTE DE BANCADA (Isola o mau funcionamento sem o carrinho)
+                // await conectarESP32();
                 
                 // Ativa os sensores nativos do celular
                 ativarGPSCelular();
@@ -114,7 +116,7 @@
         }
 
         // --- 3. SENSORES INTERNOS DO CELULAR (GPS E BÚSSOLA) ---
-        function activarGPSCelular() {
+        function ativarGPSCelular() {
             if ("geolocation" in navigator) {
                 navigator.geolocation.watchPosition((position) => {
                     celularLat = position.coords.latitude;
@@ -124,7 +126,7 @@
             }
         }
 
-        function activarBussolaCelular() {
+        function ativarBussolaCelular() {
             if (window.DeviceOrientationEvent) {
                 window.addEventListener("deviceorientationabsolute", (event) => {
                     if (event.alpha !== null) {
@@ -134,7 +136,7 @@
             }
         }
 
-        // --- 4. BLUETOOTH DO ESP32 (APENAS COMANDOS E DISTÂNCIA) ---
+        // --- 4. BLUETOOTH DO ESP32 (DESATIVADO TEMPORARIAMENTE) ---
         async function conectarESP32() {
             try {
                 const device = await navigator.bluetooth.requestDevice({
@@ -146,7 +148,6 @@
                 const service = await server.getPrimaryService('4fafc201-1fb5-459e-8fcc-c5c9c331914b');
                 esp32Characteristic = await service.getCharacteristic('beb5483e-36e1-4688-b7f5-ea07361b26a8');
                 
-                // Configura para ouvir a leitura contínua do sensor de distância do ESP32
                 await esp32Characteristic.startNotifications();
                 esp32Characteristic.addEventListener('characteristicvaluechanged', tratarDadosSensores);
 
@@ -158,21 +159,19 @@
             }
         }
 
-        // --- 5. FUSÃO DE DADOS (ESP32 + CELULAR) E ENVIO REALTIME ---
+        // --- 5. FUSÃO DE DADOS (USADO QUANDO O BLUETOOTH ESTÁ ATIVO) ---
         function tratarDadosSensores(event) {
             const enc = new TextDecoder("utf-8");
-            esp32Distancia = enc.decode(event.target.value).trim(); // Distância pura do laser
+            esp32Distancia = enc.decode(event.target.value).trim(); 
             
-            // Empacota tudo no formato que o operador espera
             const pacoteTelemetria = `LAT:${celularLat};LON:${celularLon};DIR:${celularDirecao};DIST:${esp32Distancia}`;
             
-            // Envia via WebRTC Data Channel sem passar por servidor externo
             if (dataChannel && dataChannel.readyState === "open") {
                 dataChannel.send(JSON.stringify({ tipo: "telemetria", payload: pacoteTelemetria }));
             }
         }
 
-        // --- 6. INFRAESTRUTURA WEBRTC (SINALIZAÇÃO) ---
+        // --- 6. INFRAESTRUTURA WEBRTC (SINALIZAÇÃO COM ENVIO CONTÍNUO AUTOMÁTICO) ---
         function aguardarConexaoDoOperador() {
             peerConnection = new RTCPeerConnection(configuration);
 
@@ -185,6 +184,15 @@
                 dataChannel.onopen = () => {
                     document.getElementById("statusWebRTC").innerText = "Conectado ao Operador";
                     document.getElementById("statusWebRTC").className = "status connected";
+
+                    // --- LOOP AUTOMÁTICO PARA TESTES SEM ESP32 ---
+                    // Envia os dados do GPS/Bússola do celular a cada 500ms de forma independente
+                    setInterval(() => {
+                        if (dataChannel && dataChannel.readyState === "open") {
+                            const pacoteTelemetria = `LAT:${celularLat};LON:${celularLon};DIR:${celularDirecao};DIST:${esp32Distancia}`;
+                            dataChannel.send(JSON.stringify({ tipo: "telemetria", payload: pacoteTelemetria }));
+                        }
+                    }, 500);
                 };
             };
 
@@ -218,7 +226,6 @@
             const comando = event.data; 
             document.getElementById("txtComando").innerText = comando;
 
-            // Envia imediatamente via Bluetooth para os motores do ESP32
             if (esp32Characteristic) {
                 const encoder = new TextEncoder();
                 esp32Characteristic.writeValue(encoder.encode(comando)).catch(err => {
