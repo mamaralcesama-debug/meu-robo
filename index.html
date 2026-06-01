@@ -128,11 +128,26 @@
 
         function ativarBussolaCelular() {
             if (window.DeviceOrientationEvent) {
-                window.addEventListener("deviceorientationabsolute", (event) => {
-                    if (event.alpha !== null) {
-                        celularDirecao = Math.round(event.alpha); // Graus de 0 a 360
-                    }
-                }, true);
+                // Verifica se é um dispositivo Apple (iOS) que exige permissão explícita
+                if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                    DeviceOrientationEvent.requestPermission()
+                        .then(permissionState => {
+                            if (permissionState === 'granted') {
+                                window.addEventListener("deviceorientationabsolute", tratarOrientacao, true);
+                            }
+                        })
+                        .catch(console.error);
+                } else {
+                    // Dispositivos Android ou outros que não exigem o "clique" de permissão
+                    window.addEventListener("deviceorientationabsolute", tratarOrientacao, true);
+                }
+            }
+        }
+
+        // Função isolada para processar os graus da bússola
+        function tratarOrientacao(event) {
+            if (event.alpha !== null) {
+                celularDirecao = Math.round(event.alpha);
             }
         }
 
