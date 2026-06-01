@@ -18,7 +18,7 @@
 </head>
 <body>
 
-    <h1>Robô Ativo</h1>
+    <h1>Robô Ativo (Modo iPhone/Bancada)</h1>
     <button id="btnIniciar" onclick="inicializarSistema()">LIGAR SISTEMA DO ROBÔ</button>
 
     <div class="status-box">
@@ -33,7 +33,6 @@
     </div>
 
     <script>
-        // --- CREDENCIAIS DO SEU PROJETO CONFIGURADAS ---
         const firebaseConfig = {
             apiKey: "AIzaSyAPJOs-lOFuA0zqZrJKmdrWrSr4Vf2dNx0",
             authDomain: "robo-webrtc-7b32b.firebaseapp.com",
@@ -47,14 +46,12 @@
         firebase.initializeApp(firebaseConfig);
         const database = firebase.database();
 
-        // --- VARIÁVEIS GLOBAIS ---
-        let localStream1, localStream2;
+        let localStream1;
         let peerConnection;
         let dataChannel;
         let esp32Characteristic;
         let wakeLock = null;
 
-        // Sensores internos do Celular e externos do ESP32
         let celularLat = 0.0;
         let celularLon = 0.0;
         let celularDirecao = 0;
@@ -62,22 +59,17 @@
 
         const configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19020' }] };
 
-        // --- 1. INICIALIZAÇÃO GERAL ---
         async function inicializarSistema() {
             document.getElementById("btnIniciar").disabled = true;
             try {
-                // Tenta manter a tela do celular sempre ligada
                 if ('wakeLock' in navigator) {
                     wakeLock = await navigator.wakeLock.request('screen');
-                    console.log("Wake Lock ativo: Tela travada.");
                 }
                 
+                // Ativa a câmera primária primeiro
                 await iniciarCameras();
                 
-                // LINHA COMENTADA PARA TESTE DE BANCADA (Isola o mau funcionamento sem o carrinho)
-                // await conectarESP32();
-                
-                // Ativa os sensores nativos do celular
+                // Ativa os sensores nativos do celular com suporte a iOS
                 ativarGPSCelular();
                 ativarBussolaCelular();
                 
@@ -88,34 +80,31 @@
             }
         }
 
-        // --- 2. CAPTURA DE VÍDEO (INTERNA + USB OTG) ---
+        // --- ATUALIZADO: VERSÃO LEVE FOCADA EM DISPOSITIVOS MÓVEIS ---
         async function iniciarCameras() {
             try {
-                // Câmera 1: Traseira do Celular (Navegação)
+                // Solicita apenas a câmera traseira padrão de forma limpa
                 localStream1 = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: "environment" }, audio: false
+                    video: { 
+                        facingMode: "environment",
+                        width: { ideal: 640 },
+                        height: { ideal: 480 }
+                    }, 
+                    audio: false
                 });
-                document.getElementById('videoLocal1').srcObject = localStream1;
-
-                // Câmera 2: Tenta capturar a câmera USB externa (UVC)
-                const dispositivos = await navigator.mediaDevices.enumerateDevices();
-                const camerasVideo = dispositivos.filter(device => device.kind === 'videoinput');
                 
-                if (camerasVideo.length > 1) {
-                    localStream2 = await navigator.mediaDevices.getUserMedia({
-                        video: { deviceId: { exact: camerasVideo[1].deviceId } }, audio: false
-                    });
-                    document.getElementById('videoLocal2').srcObject = localStream2;
-                } else {
-                    console.log("Segunda câmera não detectada pelo navegador. Usando apenas a traseira.");
-                }
+                const videoElement = document.getElementById('videoLocal1');
+                videoElement.srcObject = localStream1;
+                
+                // Força o play no iOS
+                videoElement.play().catch(e => console.log("Aguardando interação para dar play"));
+
             } catch (e) {
-                console.error("Erro ao acessar câmeras: ", e);
-                throw new Error("Permissão de câmera negada ou dispositivo não encontrado.");
+                console.error("Erro ao acessar câmera: ", e);
+                throw new Error("Permissão de câmera negada ou bloqueada pelo iOS.");
             }
         }
 
-        // --- 3. SENSORES INTERNOS DO CELULAR (GPS E BÚSSOLA) ---
         function ativarGPSCelular() {
             if ("geolocation" in navigator) {
                 navigator.geolocation.watchPosition((position) => {
@@ -126,9 +115,8 @@
             }
         }
 
-        function ativarBussolaCelular() {
+        function activarBussolaCelular() {
             if (window.DeviceOrientationEvent) {
-                // Verifica se é um dispositivo Apple (iOS) que exige permissão explícita
                 if (typeof DeviceOrientationEvent.requestPermission === 'function') {
                     DeviceOrientationEvent.requestPermission()
                         .then(permissionState => {
@@ -138,60 +126,24 @@
                         })
                         .catch(console.error);
                 } else {
-                    // Dispositivos Android ou outros que não exigem o "clique" de permissão
                     window.addEventListener("deviceorientationabsolute", tratarOrientacao, true);
                 }
             }
         }
 
-        // Função isolada para processar os graus da bússola
         function tratarOrientacao(event) {
             if (event.alpha !== null) {
                 celularDirecao = Math.round(event.alpha);
             }
         }
 
-        // --- 4. BLUETOOTH DO ESP32 (DESATIVADO TEMPORARIAMENTE) ---
-        async function conectarESP32() {
-            try {
-                const device = await navigator.bluetooth.requestDevice({
-                    filters: [{ name: 'ESP32_ROBO' }],
-                    optionalServices: ['4fafc201-1fb5-459e-8fcc-c5c9c331914b']
-                });
-
-                const server = await device.gatt.connect();
-                const service = await server.getPrimaryService('4fafc201-1fb5-459e-8fcc-c5c9c331914b');
-                esp32Characteristic = await service.getCharacteristic('beb5483e-36e1-4688-b7f5-ea07361b26a8');
-                
-                await esp32Characteristic.startNotifications();
-                esp32Characteristic.addEventListener('characteristicvaluechanged', tratarDadosSensores);
-
-                document.getElementById("statusBluetooth").innerText = "Conectado";
-                document.getElementById("statusBluetooth").className = "status connected";
-            } catch (e) {
-                console.error("Erro Bluetooth: ", e);
-                throw new Error("Lembre-se de ativar o GPS do celular antes de buscar o Bluetooth.");
-            }
-        }
-
-        // --- 5. FUSÃO DE DADOS (USADO QUANDO O BLUETOOTH ESTÁ ATIVO) ---
-        function tratarDadosSensores(event) {
-            const enc = new TextDecoder("utf-8");
-            esp32Distancia = enc.decode(event.target.value).trim(); 
-            
-            const pacoteTelemetria = `LAT:${celularLat};LON:${celularLon};DIR:${celularDirecao};DIST:${esp32Distancia}`;
-            
-            if (dataChannel && dataChannel.readyState === "open") {
-                dataChannel.send(JSON.stringify({ tipo: "telemetria", payload: pacoteTelemetria }));
-            }
-        }
-
-        // --- 6. INFRAESTRUTURA WEBRTC (SINALIZAÇÃO COM ENVIO CONTÍNUO AUTOMÁTICO) ---
         function aguardarConexaoDoOperador() {
             peerConnection = new RTCPeerConnection(configuration);
 
-            if (localStream1) localStream1.getTracks().forEach(track => peerConnection.addTrack(track, localStream1));
-            if (localStream2) localStream2.getTracks().forEach(track => peerConnection.addTrack(track, localStream2));
+            // Adiciona os tracks da câmera ativa para transmissão
+            if (localStream1) {
+                localStream1.getTracks().forEach(track => peerConnection.addTrack(track, localStream1));
+            }
 
             peerConnection.ondatachannel = (event) => {
                 dataChannel = event.channel;
@@ -200,8 +152,6 @@
                     document.getElementById("statusWebRTC").innerText = "Conectado ao Operador";
                     document.getElementById("statusWebRTC").className = "status connected";
 
-                    // --- LOOP AUTOMÁTICO PARA TESTES SEM ESP32 ---
-                    // Envia os dados do GPS/Bússola do celular a cada 500ms de forma independente
                     setInterval(() => {
                         if (dataChannel && dataChannel.readyState === "open") {
                             const pacoteTelemetria = `LAT:${celularLat};LON:${celularLon};DIR:${celularDirecao};DIST:${esp32Distancia}`;
@@ -236,17 +186,8 @@
             });
         }
 
-        // --- 7. EXECUÇÃO DE COMANDO DE MOVIMENTO ---
         function receberComandoOperador(event) {
-            const comando = event.data; 
-            document.getElementById("txtComando").innerText = comando;
-
-            if (esp32Characteristic) {
-                const encoder = new TextEncoder();
-                esp32Characteristic.writeValue(encoder.encode(comando)).catch(err => {
-                    console.error("Erro de envio Bluetooth:", err);
-                });
-            }
+            document.getElementById("txtComando").innerText = event.data;
         }
     </script>
 </body>
