@@ -9,8 +9,8 @@
         .status-box { border: 1px solid #333; padding: 15px; margin: 10px auto; max-width: 400px; border-radius: 8px; background: #222; }
         .status { font-weight: bold; color: #ff3b30; }
         .connected { color: #4cd964; }
-        video { width: 45%; margin: 5px; border: 2px solid #555; border-radius: 4px; background: #000; }
-        button { background: #34c759; color: white; border: none; padding: 12px 24px; font-size: 16px; border-radius: 8px; cursor: pointer; font-weight: bold; }
+        video { width: 90%; max-width: 400px; margin: 5px; border: 2px solid #555; border-radius: 4px; background: #000; }
+        button { background: #34c759; color: white; border: none; padding: 15px 30px; font-size: 16px; border-radius: 8px; cursor: pointer; font-weight: bold; width: 100%; max-width: 400px; }
         button:disabled { background: #555; cursor: not-allowed; }
     </style>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
@@ -18,18 +18,18 @@
 </head>
 <body>
 
-    <h1>Robô Ativo (Modo iPhone/Bancada)</h1>
-    <button id="btnIniciar" onclick="inicializarSistema()">LIGAR SISTEMA DO ROBÔ</button>
+    <h1>Robô Ativo (iOS Homologado)</h1>
+    <button id="btnIniciar" onclick="solicitarPermissoesIPhone()">LIGAR SISTEMA DO ROBÔ</button>
 
     <div class="status-box">
         <p>Status WebRTC: <span id="statusWebRTC" class="status">Desconectado</span></p>
-        <p>Status ESP32 (Bluetooth): <span id="statusBluetooth" class="status">Desconectado (Ignorado no Teste)</span></p>
+        <p>Status ESP32 (Bluetooth): <span id="statusBluetooth" class="status">Desconectado (Ignorado)</span></p>
+        <p>Bússola Local: <span id="txtBussola" style="color: #ff9500; font-weight: bold;">0°</span></p>
         <p>Último Comando: <span id="txtComando">-</span></p>
     </div>
 
     <div>
         <video id="videoLocal1" autoplay playsinline muted></video>
-        <video id="videoLocal2" autoplay playsinline muted></video>
     </div>
 
     <script>
@@ -49,7 +49,6 @@
         let localStream1;
         let peerConnection;
         let dataChannel;
-        let esp32Characteristic;
         let wakeLock = null;
 
         let celularLat = 0.0;
@@ -59,31 +58,55 @@
 
         const configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19020' }] };
 
-        async function inicializarSistema() {
+        // --- ENTRADA DE SEGURANÇA EXCLUSIVA PARA O IPHONE ---
+        function solicitarPermissoesIPhone() {
+            // Desativa o botão para evitar cliques duplos
             document.getElementById("btnIniciar").disabled = true;
+
+            // Força o pedido da bússola no exato momento do toque físico
+            if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                DeviceOrientationEvent.requestPermission()
+                    .then(permissionState => {
+                        if (permissionState === 'granted') {
+                            window.addEventListener("deviceorientationabsolute", tratarOrientacao, true);
+                            console.log("Bússola do iOS autorizada.");
+                        } else {
+                            console.log("Permissão da bússola negada pelo usuário.");
+                        }
+                        // Segue com o fluxo normal após resolver a bússola
+                        inicializarSistema();
+                    })
+                    .catch(err => {
+                        console.error("Erro ao pedir bússola:", err);
+                        // Mesmo se der erro no sensor, tenta rodar o vídeo
+                        inicializarSistema();
+                    });
+            } else {
+                // Se for Android, não precisa do prompt especial, apenas liga
+                if (window.DeviceOrientationEvent) {
+                    window.addEventListener("deviceorientationabsolute", tratarOrientacao, true);
+                }
+                inicializarSistema();
+            }
+        }
+
+        async function inicializarSistema() {
             try {
                 if ('wakeLock' in navigator) {
                     wakeLock = await navigator.wakeLock.request('screen');
                 }
                 
-                // Ativa a câmera primária primeiro
                 await iniciarCameras();
-                
-                // Ativa os sensores nativos do celular com suporte a iOS
                 ativarGPSCelular();
-                ativarBussolaCelular();
-                
                 aguardarConexaoDoOperador();
             } catch (error) {
-                alert("Erro ao inicializar: " + error.message);
+                alert("Erro no sistema de mídia: " + error.message);
                 document.getElementById("btnIniciar").disabled = false;
             }
         }
 
-        // --- ATUALIZADO: VERSÃO LEVE FOCADA EM DISPOSITIVOS MÓVEIS ---
         async function iniciarCameras() {
             try {
-                // Solicita apenas a câmera traseira padrão de forma limpa
                 localStream1 = await navigator.mediaDevices.getUserMedia({
                     video: { 
                         facingMode: "environment",
@@ -95,13 +118,17 @@
                 
                 const videoElement = document.getElementById('videoLocal1');
                 videoElement.srcObject = localStream1;
-                
-                // Força o play no iOS
-                videoElement.play().catch(e => console.log("Aguardando interação para dar play"));
-
+                await videoElement.play();
             } catch (e) {
-                console.error("Erro ao acessar câmera: ", e);
-                throw new Error("Permissão de câmera negada ou bloqueada pelo iOS.");
+                console.error("Erro na câmera:", e);
+                throw new Error("Verifique se o Safari tem permissão de câmera nas configurações do iPhone.");
+            }
+        }
+
+        function tratarOrientacao(event) {
+            if (event.alpha !== null) {
+                celularDirecao = Math.round(event.alpha);
+                document.getElementById("txtBussola").innerText = celularDirecao + "°";
             }
         }
 
@@ -110,44 +137,20 @@
                 navigator.geolocation.watchPosition((position) => {
                     celularLat = position.coords.latitude;
                     celularLon = position.coords.longitude;
-                }, (err) => console.error("Erro no GPS do celular:", err), 
-                { enableHighAccuracy: true });
-            }
-        }
-
-        function activarBussolaCelular() {
-            if (window.DeviceOrientationEvent) {
-                if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-                    DeviceOrientationEvent.requestPermission()
-                        .then(permissionState => {
-                            if (permissionState === 'granted') {
-                                window.addEventListener("deviceorientationabsolute", tratarOrientacao, true);
-                            }
-                        })
-                        .catch(console.error);
-                } else {
-                    window.addEventListener("deviceorientationabsolute", tratarOrientacao, true);
-                }
-            }
-        }
-
-        function tratarOrientacao(event) {
-            if (event.alpha !== null) {
-                celularDirecao = Math.round(event.alpha);
+                }, (err) => console.error("Erro GPS:", err), { enableHighAccuracy: true });
             }
         }
 
         function aguardarConexaoDoOperador() {
             peerConnection = new RTCPeerConnection(configuration);
 
-            // Adiciona os tracks da câmera ativa para transmissão
             if (localStream1) {
                 localStream1.getTracks().forEach(track => peerConnection.addTrack(track, localStream1));
             }
 
             peerConnection.ondatachannel = (event) => {
                 dataChannel = event.channel;
-                dataChannel.onmessage = receberComandoOperador;
+                dataChannel.onmessage = (e) => { document.getElementById("txtComando").innerText = e.data; };
                 dataChannel.onopen = () => {
                     document.getElementById("statusWebRTC").innerText = "Conectado ao Operador";
                     document.getElementById("statusWebRTC").className = "status connected";
@@ -180,15 +183,4 @@
                 }
             });
 
-            database.ref('sinalizacao/operador/iceCandidates').on('child_added', snapshot => {
-                const candidate = snapshot.val();
-                if (candidate) peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-            });
-        }
-
-        function receberComandoOperador(event) {
-            document.getElementById("txtComando").innerText = event.data;
-        }
-    </script>
-</body>
-</html>
+            database.ref('sinalizacao/operador/iceCandidates').on('
