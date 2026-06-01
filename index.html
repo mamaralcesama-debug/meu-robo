@@ -183,4 +183,11 @@
                 }
             });
 
-            database.ref('sinalizacao/operador/iceCandidates').on('
+            database.ref('sinalizacao/operador/iceCandidates').on('child_added', snapshot => {
+                const candidate = snapshot.val();
+                if (candidate) peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+            });
+        }
+    </script>
+</body>
+</html>
