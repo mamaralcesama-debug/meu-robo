@@ -56,7 +56,13 @@
         let celularDirecao = 0;
         let esp32Distancia = "--";
 
-        const configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19020' }] };
+        const configuration = { 
+    iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' }, // Porta padrão mais usada no mundo
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun.services.mozilla.com' } // Servidor alternativo da Mozilla
+    ] 
+};
 
         // --- ENTRADA DE SEGURANÇA EXCLUSIVA PARA O IPHONE ---
         function solicitarPermissoesIPhone() {
