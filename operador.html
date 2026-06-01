@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel de Controle do Robô</title>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --primary: #007aff;
+            --accent: #ff9500;
+            --text: #ffffff;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 { margin-bottom: 10px; font-size: 1.8rem; }
+        
+        /* Layout Grid Responsivo */
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 20px;
+            width: 100%;
+            max-width: 1200px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 12px;
+            padding: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        /* Telas de Vídeo */
+        .video-container {
+            width: 100%;
+            position: relative;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            aspect-ratio: 4/3;
+        }
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .cam-label {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.7);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+        }
+
+        /* Quadro de Sensores */
+        .sensor-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            width: 100%;
+            margin-top: 10px;
+        }
+        .sensor-item {
+            background: rgba(255,255,255,0.05);
+            padding: 12px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .sensor-val {
+            font-size: 1.4rem;
+            font-weight: bold;
+            color: var(--accent);
+            margin-top: 5px;
+        }
+
+        /* Controle Virtual (Teclado na Tela) */
+        .control-pad {
+            display: grid;
+            grid-template-areas: 
+                ". up ."
+                "left down right";
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .btn-control {
+            width: 70px;
+            height: 70px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            font-size: 1.2rem;
+            font-weight: bold;
+            cursor: pointer;
+            user-select: none;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            transition: transform 0.1s, background 0.1s;
+        }
+        .btn-control:active, .btn-control.active {
+            background: #0051a8;
+            transform: scale(0.92);
+        }
+        #btnUp { grid-area: up; }
+        #btnLeft { grid-area: left; }
+        #btnDown { grid-area: down; }
+        #btnRight { grid-area: right; }
+
+        button#btnConectar {
+            background: #34c759; color: white; border: none; padding: 12px 30px;
+            font-size: 1rem; border-radius: 8px; cursor: pointer; margin-bottom: 20px;
+        }
+    </style>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
+</head>
+<body>
+
+    <h1>Painel do Operador</h1>
+    <button id="btnConectar" onclick="iniciarConexao()">Conectar ao Robô</button>
+
+    <div class="dashboard">
+        
+        <div class="card">
+            <div class="video-container">
+                <span class="cam-label">CAM 1 - Navegação</span>
+                <video id="videoRemoto1" autoplay playsinline></video>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="video-container">
+                <span class="cam-label">CAM 2 - Inspeção</span>
+                <video id="videoRemoto2" autoplay playsinline></video>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>Telemetria do Robô</h3>
+            <div class="sensor-grid">
+                <div class="sensor-item">
+                    <div>Bússola (Direção)</div>
+                    <div id="valBussola" class="sensor-val">0°</div>
+                </div>
+                <div class="sensor-item">
+                    <div>Proximidade (Laser)</div>
+                    <div id="valDistancia" class="sensor-val">-- mm</div>
+                </div>
+                <div class="sensor-item" style="grid-column: span 2;">
+                    <div>Coordenadas GPS</div>
+                    <div id="valGPS" class="sensor-val" style="font-size: 1.1rem;">Aguardando sinal...</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>Controles Manuais</h3>
+            <div class="control-pad">
+                <button id="btnUp" class="btn-control" onmousedown="enviar('F')" onmouseup="enviar('S')" ontouchstart="enviar('F')" ontouchend="enviar('S')">▲</button>
+                <button id="btnLeft" class="btn-control" onmousedown="enviar('E')" onmouseup="enviar('S')" ontouchstart="enviar('E')" ontouchend="enviar('S')">◀</button>
+                <button id="btnDown" class="btn-control" onmousedown="enviar('T')" onmouseup="enviar('S')" ontouchstart="enviar('T')" ontouchend="enviar('S')">▼</button>
+                <button id="btnRight" class="btn-control" onmousedown="enviar('D')" onmouseup="enviar('S')" ontouchstart="enviar('D')" ontouchend="enviar('S')">▶</button>
+            </div>
+            <p style="font-size: 0.8rem; color: #888; margin-top: 15px;">Dica no PC: Use as teclas W, A, S, D</p>
+        </div>
+
+    </div>
+
+    <script>
+        // --- CONFIGURAÇÃO DO FIREBASE ---
+        const firebaseConfig = {
+  apiKey: "AIzaSyAPJOs-lOFuA0zqZrJKmdrWrSr4Vf2dNx0",
+  authDomain: "robo-webrtc-7b32b.firebaseapp.com",
+  databaseURL: "https://robo-webrtc-7b32b-default-rtdb.firebaseio.com",
+  projectId: "robo-webrtc-7b32b",
+  storageBucket: "robo-webrtc-7b32b.firebasestorage.app",
+  messagingSenderId: "488205904754",
+  appId: "1:488205904754:web:52a95187cb2896da5d8beb",
+  measurementId: "G-N5F97EE30J"
+};
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+
+        let peerConnection;
+        let dataChannel;
+        const configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19020' }] };
+
+        // --- 1. CONFIGURAÇÃO DO WEBRTC (GERA A OFERTA) ---
+        async function iniciarConexao() {
+            document.getElementById("btnConectar").innerText = "Conectando...";
+            document.getElementById("btnConectar").disabled = true;
+
+            peerConnection = new RTCPeerConnection(configuration);
+
+            // Cria o Canal de Dados para comandos de baixa latência
+            dataChannel = peerConnection.createDataChannel("comandos");
+            dataChannel.onopen = () => console.log("Canal de comandos aberto!");
+            dataChannel.onmessage = receberTelemetria;
+
+            // Manipula a chegada dos dois streams de vídeo independentes
+            let streamContador = 1;
+            peerConnection.ontrack = (event) => {
+                console.log("Recebendo Track de vídeo:", streamContador);
+                if (streamContador === 1) {
+                    document.getElementById('videoRemoto1').srcObject = event.streams[0];
+                    streamContador = 2;
+                } else if (streamContador === 2) {
+                    document.getElementById('videoRemoto2').srcObject = event.streams[0];
+                }
+            };
+
+            // Envia candidatos ICE locais para o Firebase
+            const iceCandidatesRef = database.ref('sinalizacao/operador/iceCandidates');
+            // Limpa as sessões anteriores antes de começar
+            await database.ref('sinalizacao').remove();
+
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) iceCandidatesRef.push(event.candidate.toJSON());
+            };
+
+            // Cria a oferta SDP para o Robô
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            
+            await database.ref('sinalizacao/operador/offer').set({
+                type: offer.type,
+                sdp: offer.sdp
+            });
+
+            // Escuta a resposta (Answer) vinda do Robô
+            database.ref('sinalizacao/robo/answer').on('value', async (snapshot) => {
+                const answer = snapshot.val();
+                if (answer && !peerConnection.currentRemoteDescription) {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+                    document.getElementById("btnConectar").innerText = "Online";
+                    document.getElementById("btnConectar").style.background = "#8e8e93";
+                }
+            });
+
+            // Escuta os candidatos ICE do Robô
+            database.ref('sinalizacao/robo/iceCandidates').on('child_added', snapshot => {
+                const candidate = snapshot.val();
+                if (candidate) peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+            });
+        }
+
+        // --- 2. ENVIO DE COMANDOS (P2P DE BAIXA LATÊNCIA) ---
+        function enviar(comando) {
+            if (dataChannel && dataChannel.readyState === "open") {
+                dataChannel.send(comando);
+            }
+        }
+
+        // --- 3. RECONHECIMENTO DO TECLADO FISCO (PC) ---
+        const comandosTeclado = {
+            'w': 'F', 'ArrowUp': 'F',
+            'a': 'E', 'ArrowLeft': 'E',
+            's': 'T', 'ArrowDown': 'T',
+            'd': 'D', 'ArrowRight': 'D'
+        };
+
+        let teclaPressionada = null;
+
+        window.addEventListener('keydown', (e) => {
+            if (comandosTeclado[e.key] && teclaPressionada !== e.key) {
+                teclaPressionada = e.key;
+                enviar(comandosTeclado[e.key]);
+                destacarBotaoVisual(comandosTeclado[e.key], true);
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (comandosTeclado[e.key] && teclaPressionada === e.key) {
+                teclaPressionada = null;
+                enviar('S'); // S = Parar (Stop)
+                destacarBotaoVisual(comandosTeclado[e.key], false);
+            }
+        });
+
+        function destacarBotaoVisual(comando, ativar) {
+            let id = "";
+            if (comando === 'F') id = "btnUp";
+            if (comando === 'E') id = "btnLeft";
+            if (comando === 'T') id = "btnDown";
+            if (comando === 'D') id = "btnRight";
+            
+            if(id) {
+                const btn = document.getElementById(id);
+                if (ativar) btn.classList.add('active');
+                else btn.classList.remove('active');
+            }
+        }
+
+        // --- 4. RECEBIMENTO E PARSING DA TELEMETRIA ---
+        function receberTelemetria(event) {
+            try {
+                const dados = JSON.parse(event.data);
+                if (dados.tipo === "telemetria") {
+                    // String esperada: LAT:-21.7643;LON:-43.3501;DIR:180;DIST:350
+                    const payload = dados.payload;
+                    
+                    // Separa os valores usando expressões regulares ou split
+                    const partes = payload.split(';');
+                    let mapaValores = {};
+                    
+                    partes.forEach(p => {
+                        const par = p.split(':');
+                        if(par.length === 2) mapaValores[par[0]] = par[1];
+                    });
+
+                    // Atualiza a interface gráfica do painel
+                    if (mapaValores['DIR']) {
+                        document.getElementById('valBussola').innerText = `${mapaValores['DIR']}°`;
+                    }
+                    if (mapaValores['DIST']) {
+                        document.getElementById('valDistancia').innerText = `${mapaValores['DIST']} mm`;
+                    }
+                    if (mapaValores['LAT'] && mapaValores['LON']) {
+                        document.getElementById('valGPS').innerText = `${mapaValores['LAT']}, ${mapaValores['LON']}`;
+                    }
+                }
+            } catch (err) {
+                console.error("Erro ao processar dados de telemetria:", err);
+            }
+        }
+    </script>
+</body>
+</html>
