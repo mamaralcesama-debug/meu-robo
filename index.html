@@ -73,7 +73,7 @@
                 }
                 
                 await iniciarCameras();
-                //await conectarESP32();
+               // await conectarESP32();
                 
                 // Ativa os sensores nativos do celular
                 ativarGPSCelular();
@@ -139,4 +139,93 @@
             try {
                 const device = await navigator.bluetooth.requestDevice({
                     filters: [{ name: 'ESP32_ROBO' }],
-                    optionalServices:
+                    optionalServices: ['4fafc201-1fb5-459e-8fcc-c5c9c331914b']
+                });
+
+                const server = await device.gatt.connect();
+                const service = await server.getPrimaryService('4fafc201-1fb5-459e-8fcc-c5c9c331914b');
+                esp32Characteristic = await service.getCharacteristic('beb5483e-36e1-4688-b7f5-ea07361b26a8');
+                
+                // Configura para ouvir a leitura contínua do sensor de distância do ESP32
+                await esp32Characteristic.startNotifications();
+                esp32Characteristic.addEventListener('characteristicvaluechanged', tratarDadosSensores);
+
+                document.getElementById("statusBluetooth").innerText = "Conectado";
+                document.getElementById("statusBluetooth").className = "status connected";
+            } catch (e) {
+                console.error("Erro Bluetooth: ", e);
+                throw new Error("Lembre-se de ativar o GPS do celular antes de buscar o Bluetooth.");
+            }
+        }
+
+        // --- 5. FUSÃO DE DADOS (ESP32 + CELULAR) E ENVIO REALTIME ---
+        function tratarDadosSensores(event) {
+            const enc = new TextDecoder("utf-8");
+            esp32Distancia = enc.decode(event.target.value).trim(); // Distância pura do laser
+            
+            // Empacota tudo no formato que o operador espera
+            const pacoteTelemetria = `LAT:${celularLat};LON:${celularLon};DIR:${celularDirecao};DIST:${esp32Distancia}`;
+            
+            // Envia via WebRTC Data Channel sem passar por servidor externo
+            if (dataChannel && dataChannel.readyState === "open") {
+                dataChannel.send(JSON.stringify({ tipo: "telemetria", payload: pacoteTelemetria }));
+            }
+        }
+
+        // --- 6. INFRAESTRUTURA WEBRTC (SINALIZAÇÃO) ---
+        function aguardarConexaoDoOperador() {
+            peerConnection = new RTCPeerConnection(configuration);
+
+            if (localStream1) localStream1.getTracks().forEach(track => peerConnection.addTrack(track, localStream1));
+            if (localStream2) localStream2.getTracks().forEach(track => peerConnection.addTrack(track, localStream2));
+
+            peerConnection.ondatachannel = (event) => {
+                dataChannel = event.channel;
+                dataChannel.onmessage = receberComandoOperador;
+                dataChannel.onopen = () => {
+                    document.getElementById("statusWebRTC").innerText = "Conectado ao Operador";
+                    document.getElementById("statusWebRTC").className = "status connected";
+                };
+            };
+
+            const iceCandidatesRef = database.ref('sinalizacao/robo/iceCandidates');
+            peerConnection.onicecandidate = (event) => {
+                if (event.candidate) iceCandidatesRef.push(event.candidate.toJSON());
+            };
+
+            database.ref('sinalizacao/operador/offer').on('value', async (snapshot) => {
+                const offer = snapshot.val();
+                if (offer && !peerConnection.currentRemoteDescription) {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+                    const answer = await peerConnection.createAnswer();
+                    await peerConnection.setLocalDescription(answer);
+                    
+                    await database.ref('sinalizacao/robo/answer').set({
+                        type: answer.type,
+                        sdp: answer.sdp
+                    });
+                }
+            });
+
+            database.ref('sinalizacao/operador/iceCandidates').on('child_added', snapshot => {
+                const candidate = snapshot.val();
+                if (candidate) peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+            });
+        }
+
+        // --- 7. EXECUÇÃO DE COMANDO DE MOVIMENTO ---
+        function receberComandoOperador(event) {
+            const comando = event.data; 
+            document.getElementById("txtComando").innerText = comando;
+
+            // Envia imediatamente via Bluetooth para os motores do ESP32
+            if (esp32Characteristic) {
+                const encoder = new TextEncoder();
+                esp32Characteristic.writeValue(encoder.encode(comando)).catch(err => {
+                    console.error("Erro de envio Bluetooth:", err);
+                });
+            }
+        }
+    </script>
+</body>
+</html>
