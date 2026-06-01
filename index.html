@@ -45,7 +45,7 @@
         };
         firebase.initializeApp(firebaseConfig);
         const database = firebase.database();
-
+        window.onerror = function(msg, url, linenumber) { alert('Erro: '+msg+' na linha: '+linenumber); return true; }
         let localStream1;
         let peerConnection;
         let dataChannel;
