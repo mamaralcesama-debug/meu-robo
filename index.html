@@ -3,14 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Robô - Controle Bluetooth & WebRTC</title>
+    <title>Robô - Central HUB (1 Sensor)</title>
     <style>
         body { font-family: Arial, sans-serif; background: #111; color: #fff; text-align: center; padding: 20px; }
-        .status-box { border: 1px solid #333; padding: 15px; margin: 10px auto; max-width: 400px; border-radius: 8px; background: #222; }
-        .status { font-weight: bold; color: #ff9500; }
-        .connected { color: #4cd964; }
-        video { width: 90%; max-width: 400px; margin: 5px; border: 2px solid #555; border-radius: 4px; background: #000; }
-        .btn-bt { background: #007aff; color: white; border: none; padding: 15px 20px; font-size: 16px; border-radius: 8px; cursor: pointer; font-weight: bold; margin-bottom: 15px; width: 90%; max-width: 400px; transition: background 0.2s; }
+        .btn-bt { background: #007aff; color: white; border: none; padding: 15px 20px; font-size: 16px; border-radius: 8px; font-weight: bold; width: 90%; max-width: 400px; }
         .btn-bt.bt-connected { background: #34c759; }
     </style>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
@@ -18,20 +14,10 @@
 </head>
 <body>
 
-    <h1>Robô - Painel de Hardware</h1>
-    
-    <button id="btnBluetooth" class="btn-bt" onclick="conectarBluetoothESP32()">CONECTAR BLUETOOTH (ESP32)</button>
-
-    <div class="status-box">
-        <p>Status WebRTC: <span id="statusWebRTC" class="status">Inicializando Câmera...</span></p>
-        <p>Status Bluetooth: <span id="statusBT" style="color: #ff3b30; font-weight: bold;">Desconectado</span></p>
-        <p>Bússola Local: <span id="txtBussola" style="color: #007aff; font-weight: bold;">0°</span></p>
-        <p>Último Comando: <span id="txtComando" style="color: #4cd964; font-weight: bold;">-</span></p>
-    </div>
-
-    <div>
-        <video id="videoLocal1" autoplay playsinline muted></video>
-    </div>
+    <h1>Unidade Móvel (Foco Sensor Traseiro)</h1>
+    <button id="btnBluetooth" class="btn-bt" onclick="conectarBluetoothESP32()">CONECTAR HARDWARE (ESP32)</button>
+    <br><br>
+    <video id="videoLocal1" autoplay playsinline muted style="width:90%; max-width:400px; border:2px solid #555;"></video>
 
     <script>
         const firebaseConfig = {
@@ -39,153 +25,95 @@
             authDomain: "robo-webrtc-7b32b.firebaseapp.com",
             databaseURL: "https://robo-webrtc-7b32b-default-rtdb.firebaseio.com",
             projectId: "robo-webrtc-7b32b",
-            storageBucket: "robo-webrtc-7b32b.firebasestorage.app",
-            messagingSenderId: "488205904754",
-            appId: "1:488205904754:web:52a95187cb2896da5d8beb",
-            measurementId: "G-N5F97EE30J"
         };
         firebase.initializeApp(firebaseConfig);
         const database = firebase.database();
         let sinalizacaoRef = database.ref('sinalizacao');
 
         let localStream1 = null, peerConnection = null, dataChannel = null, intervaloTelemetria = null;
-        let celularLat = 0.0, celularLon = 0.0, celularDirecao = 0, esp32Distancia = "--";
-        const configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] };
+        let celularLat = 0.0, celularLon = 0.0, celularDirecao = 0;
+        let distTras = "--"; // Foco exclusivo na traseira
 
-        // Configurações Web Bluetooth (Padrão de Serviço Serial BLE)
         let bluetoothCharacteristic = null;
         const BLE_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"; 
         const BLE_TX_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
 
         window.onload = async () => {
-            try {
-                if ('wakeLock' in navigator) await navigator.wakeLock.request('screen');
-                await iniciarCameraResiliente();
-                ativarSensores();
-                configurarEscutaSinalizacao();
-            } catch (e) {
-                atualizarStatus("Erro de Inicialização: " + e.message, "#ff3b30");
-            }
+            if ('wakeLock' in navigator) await navigator.wakeLock.request('screen');
+            await iniciarCameraResiliente();
+            activarSensoresNativos();
+            configurarEscutaSinalizacao();
         };
 
-        // Acoplamento Bluetooth com o ESP32
+        async function iniciarCameraResiliente() {
+            const videoElement = document.getElementById('videoLocal1');
+            const dispositivos = await navigator.mediaDevices.enumerateDevices();
+            let idCameraUSB = null;
+            dispositivos.forEach(d => { if (d.kind === 'videoinput' && (d.label.toLowerCase().includes('usb') || d.label.toLowerCase().includes('external'))) idCameraUSB = d.deviceId; });
+            let restricoes = idCameraUSB ? { video: { deviceId: { exact: idCameraUSB } }, audio: false } : { video: { facingMode: "environment" }, audio: false };
+            localStream1 = await navigator.mediaDevices.getUserMedia(restricoes);
+            videoElement.srcObject = localStream1;
+        }
+
         async function conectarBluetoothESP32() {
-            document.getElementById("btnBluetooth").innerText = "Procurando ESP32...";
             try {
-                const device = await navigator.bluetooth.requestDevice({
-                    filters: [{ name: 'Robo-Esteira' }],
-                    optionalServices: [BLE_SERVICE_UUID]
-                });
-                
+                const device = await navigator.bluetooth.requestDevice({ filters: [{ name: 'Robo-Esteira' }], optionalServices: [BLE_SERVICE_UUID] });
                 const server = await device.gatt.connect();
                 const service = await server.getPrimaryService(BLE_SERVICE_UUID);
                 bluetoothCharacteristic = await service.getCharacteristic(BLE_TX_UUID);
                 
-                document.getElementById("statusBT").innerText = "Conectado";
-                document.getElementById("statusBT").style.color = "#4cd964";
-                const btn = document.getElementById("btnBluetooth");
-                btn.innerText = "LINK BLUETOOTH ATIVO";
-                btn.className = "btn-bt bt-connected";
-            } catch (error) {
-                console.error("Erro Bluetooth:", error);
-                alert("Falha ao conectar: " + error.message);
-                document.getElementById("btnBluetooth").innerText = "CONECTAR BLUETOOTH (ESP32)";
-            }
+                await bluetoothCharacteristic.startNotifications();
+                bluetoothCharacteristic.addEventListener('characteristicvaluechanged', (e) => {
+                    const decoder = new TextDecoder();
+                    const stringBruta = decoder.decode(e.target.value);
+                    const par = stringBruta.split(':');
+                    if(par[0] === 'T') distTras = par[1];
+                });
+
+                document.getElementById("btnBluetooth").className = "btn-bt bt-connected";
+                document.getElementById("btnBluetooth").innerText = "SISTEMA INTEGRADO MESTRE";
+            } catch (error) { alert(error.message); }
         }
 
-        // Envio de strings de controle para a rampa do ESP32
         function enviarParaESP32(comando) {
             if (bluetoothCharacteristic) {
                 const encoder = new TextEncoder();
-                bluetoothCharacteristic.writeValue(encoder.encode(comando))
-                    .catch(err => console.error("Erro de transmissão BT:", err));
+                bluetoothCharacteristic.writeValue(encoder.encode(comando)).catch(e => {});
             }
-        }
-
-        async function iniciarCameraResiliente() {
-            const videoElement = document.getElementById('videoLocal1');
-            videoElement.srcObject = null;
-            try {
-                localStream1 = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: "environment", width: 640, height: 480 }, audio: false
-                });
-            } catch (e) {
-                localStream1 = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-            }
-            if (localStream1) videoElement.srcObject = localStream1;
         }
 
         function configurarEscutaSinalizacao() {
-            atualizarStatus("Pronto! Aguardando Operador...", "#007aff");
-            sinalizacaoRef.child('operador/offer').off();
             sinalizacaoRef.child('operador/offer').on('value', async (snapshot) => {
-                const offer = snapshot.val();
-                if (!offer) { resetarConexaoLocal(); return; }
-                if (peerConnection && (peerConnection.connectionState === "connected" || peerConnection.signalingState !== "stable")) return;
-                criarPeerConnection();
-                try {
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-                    const answer = await peerConnection.createAnswer();
-                    await peerConnection.setLocalDescription(answer);
-                    await sinalizacaoRef.child('robo/answer').set({ type: answer.type, sdp: answer.sdp });
-                } catch (err) { resetarConexaoLocal(); }
-            });
-        }
-
-        function criarPeerConnection() {
-            if (peerConnection) resetarConexaoLocal();
-            peerConnection = new RTCPeerConnection(configuration);
-            if (localStream1) localStream1.getTracks().forEach(track => peerConnection.addTrack(track, localStream1));
-
-            peerConnection.ondatachannel = (event) => {
-                dataChannel = event.channel;
-                dataChannel.onmessage = (e) => { 
-                    const comando = e.data;
-                    document.getElementById("txtComando").innerText = comando; 
-                    
-                    // Repassa o comando de direção (F, T, E, D, S) direto para o motor via Bluetooth
-                    enviarParaESP32(comando);
-                };
+                const offer = snapshot.val(); if (!offer) return;
+                if (peerConnection) return;
+                peerConnection = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+                if (localStream1) localStream1.getTracks().forEach(t => peerConnection.addTrack(t, localStream1));
+                peerConnection.onicecandidate = (e) => { if (e.candidate) sinalizacaoRef.child('robo/iceCandidates').push(e.candidate.toJSON()); };
                 
-                dataChannel.onopen = () => {
-                    atualizarStatus("Conectado ao Operador", "#4cd964");
-                    if (intervaloTelemetria) clearInterval(intervaloTelemetria);
-                    intervaloTelemetria = setInterval(() => {
-                        if (dataChannel && dataChannel.readyState === "open") {
-                            const pacote = `LAT:${celularLat};LON:${celularLon};DIR:${celularDirecao};DIST:${esp32Distancia}`;
-                            dataChannel.send(JSON.stringify({ tipo: "telemetria", payload: pacote }));
-                        }
-                    }, 300);
+                peerConnection.ondatachannel = (ev) => {
+                    dataChannel = ev.channel;
+                    dataChannel.onmessage = (e) => { enviarParaESP32(e.data); };
+                    dataChannel.onopen = () => {
+                        if (intervaloTelemetria) clearInterval(intervaloTelemetria);
+                        intervaloTelemetria = setInterval(() => {
+                            if (dataChannel && dataChannel.readyState === "open") {
+                                // Envia apenas a telemetria do sensor traseiro
+                                const pacote = `LAT:${celularLat};LON:${celularLon};DIR:${celularDirecao};TOF_T:${distTras}`;
+                                dataChannel.send(JSON.stringify({ tipo: "telemetria", payload: pacote }));
+                            }
+                        }, 250);
+                    };
                 };
-            };
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+                const answer = await peerConnection.createAnswer(); await peerConnection.setLocalDescription(answer);
+                await sinalizacaoRef.child('robo/answer').set({ type: answer.type, sdp: answer.sdp });
+            });
+            sinalizacaoRef.child('operador/iceCandidates').on('child_added', s => { if (s.val() && peerConnection) peerConnection.addIceCandidate(new RTCIceCandidate(s.val())); });
         }
 
-        function resetarConexaoLocal() {
-            if (intervaloTelemetria) { clearInterval(intervaloTelemetria); intervaloTelemetria = null; }
-            if (dataChannel) { dataChannel.close(); dataChannel = null; }
-            if (peerConnection) { peerConnection.close(); peerConnection = null; }
-            document.getElementById("txtComando").innerText = "-";
-            atualizarStatus("Aguardando Operador...", "#007aff");
-            enviarParaESP32('S'); // Força parada de segurança dos motores se perder o operador
-        }
-
-        function atualizarStatus(texto, cor) {
-            const el = document.getElementById("statusWebRTC");
-            if (el) { el.innerText = texto; el.style.color = cor; }
-        }
-
-        function activarSensores() {
-            if ("geolocation" in navigator) {
-                navigator.geolocation.watchPosition(p => { celularLat = p.coords.latitude; celularLon = p.coords.longitude; }, null, { enableHighAccuracy: true });
-            }
-            if (window.DeviceOrientationEvent) {
-                window.addEventListener("deviceorientationabsolute", e => {
-                    if (e.alpha !== null) {
-                        celularDirecao = Math.round(e.alpha);
-                        document.getElementById("txtBussola").innerText = celularDirecao + "°";
-                    }
-                }, true);
-            }
+        function activarSensoresNativos() {
+            navigator.geolocation.watchPosition(p => { celularLat = p.coords.latitude; celularLon = p.coords.longitude; }, null, { enableHighAccuracy: true });
+            if (window.DeviceOrientationEvent) { window.addEventListener("deviceorientationabsolute", e => { if (e.alpha !== null) celularDirecao = Math.round(e.alpha); }, true); }
         }
     </script>
 </body>
