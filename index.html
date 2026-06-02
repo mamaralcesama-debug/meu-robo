@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Robô - Central de Transmissão</title>
+    <title>Robô - Central de Transmissão (Android)</title>
     <style>
         body { font-family: Arial, sans-serif; background: #111; color: #fff; text-align: center; padding: 20px; }
         .status-box { border: 1px solid #333; padding: 15px; margin: 10px auto; max-width: 400px; border-radius: 8px; background: #222; }
@@ -18,12 +18,11 @@
 </head>
 <body>
 
-    <h1>Robô Ativo (iOS Homologado)</h1>
-    <button id="btnIniciar" onclick="solicitarPermissoesIPhone()">LIGAR SISTEMA DO ROBÔ</button>
+    <h1>Robô Ativo (Modo Android)</h1>
+    <button id="btnIniciar" onclick="inicializarSistemaAndroid()">LIGAR SISTEMA DO ROBÔ</button>
 
     <div class="status-box">
         <p>Status WebRTC: <span id="statusWebRTC" class="status">Desconectado</span></p>
-        <p>Status ESP32 (Bluetooth): <span id="statusBluetooth" class="status">Desconectado (Ignorado)</span></p>
         <p>Bússola Local: <span id="txtBussola" style="color: #ff9500; font-weight: bold;">0°</span></p>
         <p>Último Comando: <span id="txtComando">-</span></p>
     </div>
@@ -33,6 +32,7 @@
     </div>
 
     <script>
+        // --- SUAS CREDENCIAIS REAIS ---
         const firebaseConfig = {
             apiKey: "AIzaSyAPJOs-lOFuA0zqZrJKmdrWrSr4Vf2dNx0",
             authDomain: "robo-webrtc-7b32b.firebaseapp.com",
@@ -45,7 +45,7 @@
         };
         firebase.initializeApp(firebaseConfig);
         const database = firebase.database();
-        window.onerror = function(msg, url, linenumber) { alert('Erro: '+msg+' na linha: '+linenumber); return true; }
+
         let localStream1;
         let peerConnection;
         let dataChannel;
@@ -56,63 +56,39 @@
         let celularDirecao = 0;
         let esp32Distancia = "--";
 
+        // Servidores STUN estáveis na porta padrão (Excelente para Android em redes locais/Wi-Fi)
         const configuration = { 
-    iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' }, // Porta padrão mais usada no mundo
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun.services.mozilla.com' } // Servidor alternativo da Mozilla
-    ] 
-};
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' }
+            ] 
+        };
 
-        // --- ENTRADA DE SEGURANÇA EXCLUSIVA PARA O IPHONE ---
-        function solicitarPermissoesIPhone() {
-            // Desativa o botão para evitar cliques duplos
+        // Captura global de erros para ajudar no debug
+        window.onerror = function(msg) { alert('Erro Android: ' + msg); return true; }
+
+        async function inicializarSistemaAndroid() {
             document.getElementById("btnIniciar").disabled = true;
-
-            // Força o pedido da bússola no exato momento do toque físico
-            if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                DeviceOrientationEvent.requestPermission()
-                    .then(permissionState => {
-                        if (permissionState === 'granted') {
-                            window.addEventListener("deviceorientationabsolute", tratarOrientacao, true);
-                            console.log("Bússola do iOS autorizada.");
-                        } else {
-                            console.log("Permissão da bússola negada pelo usuário.");
-                        }
-                        // Segue com o fluxo normal após resolver a bússola
-                        inicializarSistema();
-                    })
-                    .catch(err => {
-                        console.error("Erro ao pedir bússola:", err);
-                        // Mesmo se der erro no sensor, tenta rodar o vídeo
-                        inicializarSistema();
-                    });
-            } else {
-                // Se for Android, não precisa do prompt especial, apenas liga
-                if (window.DeviceOrientationEvent) {
-                    window.addEventListener("deviceorientationabsolute", tratarOrientacao, true);
-                }
-                inicializarSistema();
-            }
-        }
-
-        async function inicializarSistema() {
             try {
+                // Mantém a tela ligada no Android nativamente
                 if ('wakeLock' in navigator) {
                     wakeLock = await navigator.wakeLock.request('screen');
                 }
                 
-                await iniciarCameras();
-                ativarGPSCelular();
+                // Inicia os fluxos
+                await iniciarCameraAndroid();
+                ativarSensoresAndroid();
                 aguardarConexaoDoOperador();
+                
             } catch (error) {
-                alert("Erro no sistema de mídia: " + error.message);
+                alert("Erro ao inicializar: " + error.message);
                 document.getElementById("btnIniciar").disabled = false;
             }
         }
 
-        async function iniciarCameras() {
+        async function iniciarCameraAndroid() {
             try {
+                // Solicita a câmera traseira do Android de forma limpa (environment)
                 localStream1 = await navigator.mediaDevices.getUserMedia({
                     video: { 
                         facingMode: "environment",
@@ -124,43 +100,53 @@
                 
                 const videoElement = document.getElementById('videoLocal1');
                 videoElement.srcObject = localStream1;
-                await videoElement.play();
+                
             } catch (e) {
-                console.error("Erro na câmera:", e);
-                throw new Error("Verifique se o Safari tem permissão de câmera nas configurações do iPhone.");
+                console.error("Erro na câmera do Android:", e);
+                throw new Error("Permissão de câmera negada. Garanta que o Chrome tem acesso à câmera.");
             }
         }
 
-        function tratarOrientacao(event) {
-            if (event.alpha !== null) {
-                celularDirecao = Math.round(event.alpha);
-                document.getElementById("txtBussola").innerText = celularDirecao + "°";
-            }
-        }
-
-        function ativarGPSCelular() {
+        function ativarSensoresAndroid() {
+            // GPS Nativo
             if ("geolocation" in navigator) {
                 navigator.geolocation.watchPosition((position) => {
                     celularLat = position.coords.latitude;
                     celularLon = position.coords.longitude;
                 }, (err) => console.error("Erro GPS:", err), { enableHighAccuracy: true });
             }
+
+            // Bússola Nativa (No Android, o evento absoluto funciona direto sem travas de clique)
+            if (window.DeviceOrientationEvent) {
+                window.addEventListener("deviceorientationabsolute", (event) => {
+                    if (event.alpha !== null) {
+                        celularDirecao = Math.round(event.alpha);
+                        document.getElementById("txtBussola").innerText = celularDirecao + "°";
+                    }
+                }, true);
+            }
         }
 
         function aguardarConexaoDoOperador() {
             peerConnection = new RTCPeerConnection(configuration);
 
+            // Injeta o fluxo da câmera do Android para a transmissão
             if (localStream1) {
                 localStream1.getTracks().forEach(track => peerConnection.addTrack(track, localStream1));
             }
 
+            // Recebe o canal de dados gerado pelo operador (PC)
             peerConnection.ondatachannel = (event) => {
                 dataChannel = event.channel;
-                dataChannel.onmessage = (e) => { document.getElementById("txtComando").innerText = e.data; };
+                dataChannel.onmessage = (e) => { 
+                    document.getElementById("txtComando").innerText = e.data; 
+                };
+                
                 dataChannel.onopen = () => {
                     document.getElementById("statusWebRTC").innerText = "Conectado ao Operador";
                     document.getElementById("statusWebRTC").className = "status connected";
 
+                    // Ciclo contínuo de envio de telemetria (Bússola rodando viva)
                     setInterval(() => {
                         if (dataChannel && dataChannel.readyState === "open") {
                             const pacoteTelemetria = `LAT:${celularLat};LON:${celularLon};DIR:${celularDirecao};DIST:${esp32Distancia}`;
@@ -175,6 +161,7 @@
                 if (event.candidate) iceCandidatesRef.push(event.candidate.toJSON());
             };
 
+            // Escuta a oferta criada pelo PC
             database.ref('sinalizacao/operador/offer').on('value', async (snapshot) => {
                 const offer = snapshot.val();
                 if (offer && !peerConnection.currentRemoteDescription) {
@@ -189,6 +176,7 @@
                 }
             });
 
+            // Recebe os candidatos ICE vindos do PC
             database.ref('sinalizacao/operador/iceCandidates').on('child_added', snapshot => {
                 const candidate = snapshot.val();
                 if (candidate) peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
