@@ -3,22 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Robô - Transmissão Automatizada Pro</title>
+    <title>Robô - Controle Bluetooth & WebRTC</title>
     <style>
         body { font-family: Arial, sans-serif; background: #111; color: #fff; text-align: center; padding: 20px; }
         .status-box { border: 1px solid #333; padding: 15px; margin: 10px auto; max-width: 400px; border-radius: 8px; background: #222; }
         .status { font-weight: bold; color: #ff9500; }
         .connected { color: #4cd964; }
         video { width: 90%; max-width: 400px; margin: 5px; border: 2px solid #555; border-radius: 4px; background: #000; }
+        .btn-bt { background: #007aff; color: white; border: none; padding: 15px 20px; font-size: 16px; border-radius: 8px; cursor: pointer; font-weight: bold; margin-bottom: 15px; width: 90%; max-width: 400px; transition: background 0.2s; }
+        .btn-bt.bt-connected { background: #34c759; }
     </style>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
 </head>
 <body>
 
-    <h1>Robô - Modo Autônomo Ativo</h1>
+    <h1>Robô - Painel de Hardware</h1>
+    
+    <button id="btnBluetooth" class="btn-bt" onclick="conectarBluetoothESP32()">CONECTAR BLUETOOTH (ESP32)</button>
+
     <div class="status-box">
         <p>Status WebRTC: <span id="statusWebRTC" class="status">Inicializando Câmera...</span></p>
+        <p>Status Bluetooth: <span id="statusBT" style="color: #ff3b30; font-weight: bold;">Desconectado</span></p>
         <p>Bússola Local: <span id="txtBussola" style="color: #007aff; font-weight: bold;">0°</span></p>
         <p>Último Comando: <span id="txtComando" style="color: #4cd964; font-weight: bold;">-</span></p>
     </div>
@@ -42,13 +48,14 @@
         const database = firebase.database();
         let sinalizacaoRef = database.ref('sinalizacao');
 
-        let localStream1 = null;
-        let peerConnection = null;
-        let dataChannel = null;
-        let intervaloTelemetria = null;
-
+        let localStream1 = null, peerConnection = null, dataChannel = null, intervaloTelemetria = null;
         let celularLat = 0.0, celularLon = 0.0, celularDirecao = 0, esp32Distancia = "--";
         const configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] };
+
+        // Configurações Web Bluetooth (Padrão de Serviço Serial BLE)
+        let bluetoothCharacteristic = null;
+        const BLE_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"; 
+        const BLE_TX_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
 
         window.onload = async () => {
             try {
@@ -61,98 +68,87 @@
             }
         };
 
+        // Acoplamento Bluetooth com o ESP32
+        async function conectarBluetoothESP32() {
+            document.getElementById("btnBluetooth").innerText = "Procurando ESP32...";
+            try {
+                const device = await navigator.bluetooth.requestDevice({
+                    filters: [{ name: 'Robo-Esteira' }],
+                    optionalServices: [BLE_SERVICE_UUID]
+                });
+                
+                const server = await device.gatt.connect();
+                const service = await server.getPrimaryService(BLE_SERVICE_UUID);
+                bluetoothCharacteristic = await service.getCharacteristic(BLE_TX_UUID);
+                
+                document.getElementById("statusBT").innerText = "Conectado";
+                document.getElementById("statusBT").style.color = "#4cd964";
+                const btn = document.getElementById("btnBluetooth");
+                btn.innerText = "LINK BLUETOOTH ATIVO";
+                btn.className = "btn-bt bt-connected";
+            } catch (error) {
+                console.error("Erro Bluetooth:", error);
+                alert("Falha ao conectar: " + error.message);
+                document.getElementById("btnBluetooth").innerText = "CONECTAR BLUETOOTH (ESP32)";
+            }
+        }
+
+        // Envio de strings de controle para a rampa do ESP32
+        function enviarParaESP32(comando) {
+            if (bluetoothCharacteristic) {
+                const encoder = new TextEncoder();
+                bluetoothCharacteristic.writeValue(encoder.encode(comando))
+                    .catch(err => console.error("Erro de transmissão BT:", err));
+            }
+        }
+
         async function iniciarCameraResiliente() {
             const videoElement = document.getElementById('videoLocal1');
             videoElement.srcObject = null;
-
             try {
                 localStream1 = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: "environment", width: 640, height: 480 },
-                    audio: false
+                    video: { facingMode: "environment", width: 640, height: 480 }, audio: false
                 });
             } catch (e) {
-                console.log("Falha na câmera traseira, tentando padrão/frontal...");
                 localStream1 = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
             }
-
-            if (localStream1) {
-                videoElement.srcObject = localStream1;
-                await videoElement.play().catch(err => console.log("Aguardando interação:", err));
-            } else {
-                throw new Error("Não foi possível capturar nenhuma câmera.");
-            }
+            if (localStream1) videoElement.srcObject = localStream1;
         }
 
         function configurarEscutaSinalizacao() {
             atualizarStatus("Pronto! Aguardando Operador...", "#007aff");
             sinalizacaoRef.child('operador/offer').off();
-            
             sinalizacaoRef.child('operador/offer').on('value', async (snapshot) => {
                 const offer = snapshot.val();
-                
-                if (!offer) {
-                    resetarConexaoLocal();
-                    return;
-                }
-
-                if (peerConnection && (peerConnection.connectionState === "connected" || peerConnection.signalingState !== "stable")) {
-                    return;
-                }
-
+                if (!offer) { resetarConexaoLocal(); return; }
+                if (peerConnection && (peerConnection.connectionState === "connected" || peerConnection.signalingState !== "stable")) return;
                 criarPeerConnection();
-
                 try {
                     await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
                     const answer = await peerConnection.createAnswer();
                     await peerConnection.setLocalDescription(answer);
-                    
                     await sinalizacaoRef.child('robo/answer').set({ type: answer.type, sdp: answer.sdp });
-                } catch (err) {
-                    console.error("Erro na negociação do WebRTC:", err);
-                    resetarConexaoLocal();
-                }
-            });
-
-            sinalizacaoRef.child('operador/iceCandidates').off();
-            sinalizacaoRef.child('operador/iceCandidates').on('child_added', snapshot => {
-                const candidate = snapshot.val();
-                if (candidate && peerConnection && peerConnection.remoteDescription) {
-                    peerConnection.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => {});
-                }
+                } catch (err) { resetarConexaoLocal(); }
             });
         }
 
         function criarPeerConnection() {
             if (peerConnection) resetarConexaoLocal();
-
             peerConnection = new RTCPeerConnection(configuration);
-
-            if (localStream1) {
-                localStream1.getTracks().forEach(track => peerConnection.addTrack(track, localStream1));
-            }
-
-            peerConnection.onicecandidate = (event) => {
-                if (event.candidate) sinalizacaoRef.child('robo/iceCandidates').push(event.candidate.toJSON());
-            };
-
-            peerConnection.oniceconnectionstatechange = () => {
-                const state = peerConnection.iceConnectionState;
-                if (state === "disconnected" || state === "failed") {
-                    atualizarStatus("Sinal instável. Resetando...", "#ff3b30");
-                    resetarConexaoLocal();
-                }
-            };
+            if (localStream1) localStream1.getTracks().forEach(track => peerConnection.addTrack(track, localStream1));
 
             peerConnection.ondatachannel = (event) => {
                 dataChannel = event.channel;
                 dataChannel.onmessage = (e) => { 
-                    // Atualiza a tela com o comando recebido do operador (F, T, E, D, S)
-                    document.getElementById("txtComando").innerText = e.data; 
+                    const comando = e.data;
+                    document.getElementById("txtComando").innerText = comando; 
+                    
+                    // Repassa o comando de direção (F, T, E, D, S) direto para o motor via Bluetooth
+                    enviarParaESP32(comando);
                 };
                 
                 dataChannel.onopen = () => {
                     atualizarStatus("Conectado ao Operador", "#4cd964");
-                    
                     if (intervaloTelemetria) clearInterval(intervaloTelemetria);
                     intervaloTelemetria = setInterval(() => {
                         if (dataChannel && dataChannel.readyState === "open") {
@@ -168,8 +164,9 @@
             if (intervaloTelemetria) { clearInterval(intervaloTelemetria); intervaloTelemetria = null; }
             if (dataChannel) { dataChannel.close(); dataChannel = null; }
             if (peerConnection) { peerConnection.close(); peerConnection = null; }
-            document.getElementById("txtComando").innerText = "-"; // Limpa o comando visual ao desconectar
+            document.getElementById("txtComando").innerText = "-";
             atualizarStatus("Aguardando Operador...", "#007aff");
+            enviarParaESP32('S'); // Força parada de segurança dos motores se perder o operador
         }
 
         function atualizarStatus(texto, cor) {
@@ -177,7 +174,7 @@
             if (el) { el.innerText = texto; el.style.color = cor; }
         }
 
-        function ativarSensores() {
+        function activarSensores() {
             if ("geolocation" in navigator) {
                 navigator.geolocation.watchPosition(p => { celularLat = p.coords.latitude; celularLon = p.coords.longitude; }, null, { enableHighAccuracy: true });
             }
