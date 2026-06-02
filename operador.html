@@ -3,84 +3,88 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Painel de Controle com Mapa Satélite</title>
-    
+    <title>Painel Rover - Monitor Traseiro</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
         :root { --bg: #121212; --card: #1e1e1e; --primary: #007aff; --accent: #ff9500; --text: #ffffff; }
         body { font-family: system-ui, sans-serif; background-color: var(--bg); color: var(--text); margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
         h1 { font-size: 1.6rem; margin-bottom: 5px; }
-        
-        /* Dashboard responsivo em Grid */
-        .dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px; width: 100%; max-width: 1200px; margin-top: 15px; }
-        .card { background: var(--card); border-radius: 12px; padding: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.4); display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 280px; }
+        .dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 20px; width: 100%; max-width: 1200px; margin-top: 15px; }
+        .card { background: var(--card); border-radius: 12px; padding: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.4); display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 285px; }
         
         .video-container { width: 100%; position: relative; background: #000; border-radius: 8px; overflow: hidden; aspect-ratio: 4/3; }
         video { width: 100%; height: 100%; object-fit: cover; background: #000; }
         
-        .sensor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; }
-        .sensor-item { background: rgba(255,255,255,0.04); padding: 10px; border-radius: 6px; text-align: center; }
-        .sensor-val { font-size: 1.3rem; font-weight: bold; color: var(--accent); margin-top: 4px; }
+        /* OSD AJUSTADO APENAS PARA RETRO */
+        .osd-label { position: absolute; background: rgba(0, 0, 0, 0.6); color: #4cd964; padding: 4px 8px; font-family: 'Courier New', monospace; font-size: 0.85rem; font-weight: bold; border-radius: 4px; pointer-events: none; border: 1px solid rgba(76, 217, 100, 0.3); }
+        #osdTras   { bottom: 15px; left: 50%; transform: translateX(-50%); color: #ff3b30; border-color: rgba(255, 59, 48, 0.4); font-size: 1rem; }
+        #osdBussola { top: 15px; right: 15px; color: #007aff; border-color: rgba(0,122,255,0.4); }
+        #osdGPS     { top: 15px; left: 15px; color: #fff; border-color: rgba(255,255,255,0.2); }
+
+        #mapa { width: 100%; height: 250px; border-radius: 8px; background: #222; border: 1px solid #333; }
+        .arm-control { width: 100%; display: flex; flex-direction: column; gap: 12px; }
+        .slider-group { display: flex; flex-direction: column; width: 100%; text-align: left; }
+        .slider-group label { font-size: 0.9rem; margin-bottom: 4px; color: #aaa; display: flex; justify-content: space-between; }
+        .slider-group label span { color: var(--accent); font-weight: bold; }
+        .slider-group input[type=range] { width: 100%; height: 8px; border-radius: 4px; background: #333; accent-color: var(--primary); }
         
-        /* Janela Física do Mapa */
-        #mapa { width: 100%; height: 250px; border-radius: 8px; background: #222; margin-top: 5px; border: 1px solid #333; }
-        
-        /* Teclado Virtual */
-        .control-pad { display: grid; grid-template-areas: ". up ." "left down right"; gap: 12px; margin-top: 10px; }
+        .control-pad { display: grid; grid-template-areas: ". up ." "left down right"; gap: 12px; }
         .btn-control { width: 65px; height: 65px; background: var(--primary); color: white; border: none; border-radius: 50%; font-size: 1.5rem; cursor: pointer; user-select: none; display: flex; align-items: center; justify-content: center; }
-        .btn-control:active, .btn-control.active { background: #004fc4; transform: scale(0.92); }
-        #btnUp { grid-area: up; } #btnLeft { grid-area: left; } #btnDown { grid-area: down; } #btnRight { grid-area: right; }
-        
-        button#btnConectar { background: #34c759; color: white; border: none; padding: 12px 35px; font-size: 1rem; border-radius: 8px; cursor: pointer; font-weight: bold; }
-        button#btnConectar:disabled { background: #555; cursor: not-allowed; }
+        button#btnConectar { background: #34c759; color: white; border: none; padding: 12px 35px; font-size: 1rem; border-radius: 8px; font-weight: bold; }
     </style>
-    
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
 
-    <h1>Painel de Controle Operacional</h1>
+    <h1>Painel de Inspeção - Configuração Ré Única</h1>
     <button id="btnConectar" onclick="iniciarFluxoSinalizacao()">CONECTAR AO ROBÔ</button>
 
     <div class="dashboard">
         <div class="card">
             <div class="video-container">
                 <video id="videoRemoto1" autoplay playsinline muted></video>
+                <div id="osdGPS" class="osd-label">GPS: Buscando...</div>
+                <div id="osdBussola" class="osd-label">DIR: 000°</div>
+                <div id="osdTras" class="osd-label">DISTÂNCIA RECUO: -- mm</div>
             </div>
         </div>
 
         <div class="card">
-            <h3 style="margin: 0 0 10px 0; font-size: 1.1rem; width: 100%; text-align: left;">Localização por Satélite</h3>
+            <h3 style="margin: 0 0 10px 0; font-size: 1.1rem; width: 100%; text-align: left;">Geolocalização</h3>
             <div id="mapa"></div>
         </div>
 
         <div class="card">
-            <h3>Telemetria</h3>
-            <div class="sensor-grid">
-                <div class="sensor-item">
-                    <div>Bússola</div>
-                    <div id="valBussola" class="sensor-val">0°</div>
+            <h3>Controles do Braço</h3>
+            <div class="arm-control">
+                <div class="slider-group">
+                    <label>Giro da Base (Yaw): <span id="valBase">50%</span></label>
+                    <input type="range" min="0" max="100" value="50" oninput="atualizarLabel('Base', this.value)" onchange="enviarComandoBraco('Y', this.value)">
                 </div>
-                <div class="sensor-item">
-                    <div>Proximidade</div>
-                    <div id="valDistancia" class="sensor-val">-- mm</div>
+                <div class="slider-group">
+                    <label>Cotovelo: <span id="valCotovelo">50%</span></label>
+                    <input type="range" min="0" max="100" value="50" oninput="atualizarLabel('Cotovelo', this.value)" onchange="enviarComandoBraco('C', this.value)">
                 </div>
-                <div class="sensor-item" style="grid-column: span 2;">
-                    <div>Coordenadas GPS</div>
-                    <div id="valGPS" class="sensor-val" style="font-size: 1rem; color: #007aff;">Aguardando coordenadas...</div>
+                <div class="slider-group">
+                    <label>Elevação do Punho: <span id="valPunho">50%</span></label>
+                    <input type="range" min="0" max="100" value="50" oninput="atualizarLabel('Punho', this.value)" onchange="enviarComandoBraco('P', this.value)">
+                </div>
+                <div class="slider-group">
+                    <label>Abertura da Garra: <span id="valGarra">0%</span></label>
+                    <input type="range" min="0" max="100" value="0" oninput="atualizarLabel('Garra', this.value)" onchange="enviarComandoBraco('G', this.value)">
                 </div>
             </div>
         </div>
 
         <div class="card">
-            <h3>Controles de Direção</h3>
+            <h3>Movimentação do Rover</h3>
             <div class="control-pad">
-                <button id="btnUp" class="btn-control" onmousedown="enviar('F')" onmouseup="enviar('S')" ontouchstart="enviar('F')" ontouchend="enviar('S')">▲</button>
-                <button id="btnLeft" class="btn-control" onmousedown="enviar('E')" onmouseup="enviar('S')" ontouchstart="enviar('E')" ontouchend="enviar('S')">◀</button>
-                <button id="btnDown" class="btn-control" onmousedown="enviar('T')" onmouseup="enviar('S')" ontouchstart="enviar('T')" ontouchend="enviar('S')">▼</button>
-                <button id="btnRight" class="btn-control" onmousedown="enviar('D')" onmouseup="enviar('S')" ontouchstart="enviar('D')" ontouchend="enviar('S')">▶</button>
+                <button id="btnUp" class="btn-control" onmousedown="enviar('F')" onmouseup="enviar('S')">▲</button>
+                <button id="btnLeft" class="btn-control" onmousedown="enviar('E')" onmouseup="enviar('S')">◀</button>
+                <button id="btnDown" class="btn-control" onmousedown="enviar('T')" onmouseup="enviar('S')">▼</button>
+                <button id="btnRight" class="btn-control" onmousedown="enviar('D')" onmouseup="enviar('S')">▶</button>
             </div>
         </div>
     </div>
@@ -91,131 +95,45 @@
             authDomain: "robo-webrtc-7b32b.firebaseapp.com",
             databaseURL: "https://robo-webrtc-7b32b-default-rtdb.firebaseio.com",
             projectId: "robo-webrtc-7b32b",
-            storageBucket: "robo-webrtc-7b32b.firebasestorage.app",
-            messagingSenderId: "488205904754",
-            appId: "1:488205904754:web:52a95187cb2896da5d8beb",
-            measurementId: "G-N5F97EE30J"
         };
         firebase.initializeApp(firebaseConfig);
         const database = firebase.database();
         let sinalizacaoRef = database.ref('sinalizacao');
+        let peerConnection, dataChannel, map, roboMarker, primeiraCargaGPS = true;
 
-        let peerConnection;
-        let dataChannel;
-        const configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] };
-
-        // Variáveis Globais do Mapa
-        let map;
-        let roboMarker;
-        let primeiraCargaGPS = true;
-
-        // Inicializa o Mapa focado no Brasil antes da telemetria entrar
         window.onload = () => {
             map = L.map('mapa').setView([-14.2350, -51.9253], 4);
-            
-            // Puxa a camada original de Satélite do Google Maps de forma direta e gratuita
-            L.tileLayer('https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}', {
-                maxZoom: 20,
-                subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
-                attribution: '© Google Maps Satélite'
-            }).addTo(map);
+            L.tileLayer('https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}', { maxZoom: 20, subdomains: ['mt0', 'mt1', 'mt2', 'mt3'] }).addTo(map);
         };
 
-        // Atualiza dinamicamente a posição do marcador do robô no mapa
+        function atualizarLabel(id, valor) { document.getElementById('val' + id).innerText = valor + "%"; }
+        function enviarComandoBraco(servoId, valor) { enviar(`B:${servoId}${valor}`); }
         function atualizarMapa(lat, lon) {
-            if (primeiraCargaGPS) {
-                // Centraliza e dá zoom máximo aproximado no robô na primeira leitura válida
-                map.setView([lat, lon], 18);
-                roboMarker = L.marker([lat, lon]).addTo(map).bindPopup("<b>Robô</b>").openPopup();
-                primeiraCargaGPS = false;
-            } else {
-                // Apenas move o marcador suavemente sem tirar o zoom atual do operador
-                roboMarker.setLatLng([lat, lon]);
-            }
+            if (primeiraCargaGPS) { map.setView([lat, lon], 18); roboMarker = L.marker([lat, lon]).addTo(map); primeiraCargaGPS = false; }
+            else { roboMarker.setLatLng([lat, lon]); }
         }
 
         async function iniciarFluxoSinalizacao() {
             document.getElementById("btnConectar").innerText = "Sincronizando...";
-            document.getElementById("btnConectar").disabled = true;
             await sinalizacaoRef.remove();
-
             setTimeout(async () => {
-                peerConnection = new RTCPeerConnection(configuration);
+                peerConnection = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
                 dataChannel = peerConnection.createDataChannel("comandos");
-                dataChannel.onmessage = receberTelemetria;
-                
-                dataChannel.onopen = () => {
-                    document.getElementById("btnConectar").innerText = "SISTEMA ONLINE";
-                    document.getElementById("btnConectar").style.background = "#8e8e93";
-                };
-
-                peerConnection.ontrack = (event) => {
-                    const videoElement = document.getElementById('videoRemoto1');
-                    if (event.streams && event.streams[0]) {
-                        videoElement.srcObject = event.streams[0];
-                    } else if (!videoElement.srcObject) {
-                        videoElement.srcObject = new MediaStream([event.track]);
-                    }
-                };
-
-                peerConnection.onicecandidate = (event) => {
-                    if (event.candidate) sinalizacaoRef.child('operador/iceCandidates').push(event.candidate.toJSON());
-                };
-
+                dataChannel.onmessage = receberTelemetriaE_OSD;
+                dataChannel.onopen = () => { document.getElementById("btnConectar").innerText = "SISTEMA ONLINE"; };
+                peerConnection.ontrack = (e) => { document.getElementById('videoRemoto1').srcObject = e.streams[0]; };
+                peerConnection.onicecandidate = (e) => { if (e.candidate) sinalizacaoRef.child('operador/iceCandidates').push(e.candidate.toJSON()); };
                 const offer = await peerConnection.createOffer({ offerToReceiveVideo: true });
                 await peerConnection.setLocalDescription(offer);
                 await sinalizacaoRef.child('operador/offer').set({ type: offer.type, sdp: offer.sdp });
-
-                sinalizacaoRef.child('robo/answer').on('value', async (snapshot) => {
-                    const answer = snapshot.val();
-                    if (answer && !peerConnection.currentRemoteDescription) {
-                        await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
-                    }
-                });
-
-                sinalizacaoRef.child('robo/iceCandidates').on('child_added', snapshot => {
-                    const candidate = snapshot.val();
-                    if (candidate && peerConnection) peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-                });
+                sinalizacaoRef.child('robo/answer').on('value', async (s) => { if (s.val() && !peerConnection.currentRemoteDescription) await peerConnection.setRemoteDescription(new RTCSessionDescription(s.val())); });
+                sinalizacaoRef.child('robo/iceCandidates').on('child_added', s => { if (s.val() && peerConnection) peerConnection.addIceCandidate(new RTCIceCandidate(s.val())); });
             }, 500);
         }
 
-        function enviar(comando) {
-            if (dataChannel && dataChannel.readyState === "open") {
-                dataChannel.send(comando);
-            }
-        }
+        function enviar(comando) { if (dataChannel && dataChannel.readyState === "open") dataChannel.send(comando); }
 
-        // Mapeamento do teclado físico (WASD e Setas)
-        const comandosTeclado = {
-            'w': 'F', 'ArrowUp': 'F',
-            'a': 'E', 'ArrowLeft': 'E',
-            's': 'T', 'ArrowDown': 'T',
-            'd': 'D', 'ArrowRight': 'D'
-        };
-        let teclaAtiva = null;
-
-        window.addEventListener('keydown', (e) => {
-            const cmd = comandosTeclado[e.key];
-            if (cmd && teclaAtiva !== e.key) {
-                teclaAtiva = e.key;
-                enviar(cmd);
-                let id = cmd === 'F' ? "btnUp" : cmd === 'E' ? "btnLeft" : cmd === 'T' ? "btnDown" : "btnRight";
-                document.getElementById(id).classList.add('active');
-            }
-        });
-
-        window.addEventListener('keyup', (e) => {
-            const cmd = comandosTeclado[e.key];
-            if (cmd && teclaAtiva === e.key) {
-                teclaAtiva = null;
-                enviar('S');
-                let id = cmd === 'F' ? "btnUp" : cmd === 'E' ? "btnLeft" : cmd === 'T' ? "btnDown" : "btnRight";
-                document.getElementById(id).classList.remove('active');
-            }
-        });
-
-        function receberTelemetria(event) {
+        function receberTelemetriaE_OSD(event) {
             try {
                 const dados = JSON.parse(event.data);
                 if (dados.tipo === "telemetria") {
@@ -223,23 +141,25 @@
                     let valores = {};
                     partes.forEach(p => { const par = p.split(':'); if(par.length === 2) valores[par[0]] = par[1]; });
                     
-                    if (valores['DIR']) document.getElementById('valBussola').innerText = `${valores['DIR']}°`;
-                    if (valores['DIST']) document.getElementById('valDistancia').innerText = `${valores['DIST']} mm`;
+                    if (valores['DIR'])  document.getElementById('osdBussola').innerText = `DIR: ${valores['DIR']}°`;
+                    if (valores['TOF_T']) {
+                        let v = valores['TOF_T'];
+                        document.getElementById('osdTras').innerText = (v === "8190") ? "RÉ: LIVRE" : `DISTÂNCIA RECUO: ${v} mm`;
+                    }
                     
-                    if (valores['LAT'] && valores['LON'] && valores['LAT'] !== "0" && valores['LAT'] !== "0.0") {
-                        const latNum = parseFloat(valores['LAT']);
-                        const lonNum = parseFloat(valores['LON']);
-                        
-                        document.getElementById('valGPS').innerText = `${latNum.toFixed(6)}, ${lonNum.toFixed(6)}`;
-                        
-                        // Executa a plotagem e o movimento do alfinete no mapa em tempo real
+                    if (valores['LAT'] && valores['LON'] && valores['LAT'] !== "0.0") {
+                        const latNum = parseFloat(valores['LAT']); const lonNum = parseFloat(valores['LON']);
+                        document.getElementById('osdGPS').innerText = `GPS: ${latNum.toFixed(5)}, ${lonNum.toFixed(5)}`;
                         atualizarMapa(latNum, lonNum);
-                    } else {
-                        document.getElementById('valGPS').innerText = "Sem sinal GPS válido";
                     }
                 }
             } catch (err) {}
         }
+
+        const comandosTeclado = { 'w': 'F', 'ArrowUp': 'F', 'a': 'E', 'ArrowLeft': 'E', 's': 'T', 'ArrowDown': 'T', 'd': 'D', 'ArrowRight': 'D' };
+        let teclaAtiva = null;
+        window.addEventListener('keydown', (e) => { const cmd = comandosTeclado[e.key]; if (cmd && teclaAtiva !== e.key) { teclaAtiva = e.key; enviar(cmd); } });
+        window.addEventListener('keyup', (e) => { const cmd = comandosTeclado[e.key]; if (cmd && teclaAtiva === e.key) { teclaAtiva = null; enviar('S'); } });
     </script>
 </body>
 </html>
