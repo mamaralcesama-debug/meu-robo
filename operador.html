@@ -3,24 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Painel de Controle do Operador</title>
+    <title>Painel de Controle Estabilizado</title>
     <style>
         :root { --bg: #121212; --card: #1e1e1e; --primary: #007aff; --accent: #ff9500; --text: #ffffff; }
         body { font-family: system-ui, sans-serif; background-color: var(--bg); color: var(--text); margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
-        h1 { font-size: 1.6rem; margin-bottom: 5px; }
         .dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; width: 100%; max-width: 1200px; margin-top: 15px; }
         .card { background: var(--card); border-radius: 12px; padding: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.4); display: flex; flex-direction: column; align-items: center; }
         .video-container { width: 100%; position: relative; background: #000; border-radius: 8px; overflow: hidden; aspect-ratio: 4/3; }
         video { width: 100%; height: 100%; object-fit: cover; background: #000; }
-        .cam-label { position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.7); padding: 3px 6px; border-radius: 4px; font-size: 0.75rem; z-index: 10; }
         .sensor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; }
         .sensor-item { background: rgba(255,255,255,0.04); padding: 10px; border-radius: 6px; text-align: center; }
         .sensor-val { font-size: 1.3rem; font-weight: bold; color: var(--accent); margin-top: 4px; }
-        .control-pad { display: grid; grid-template-areas: ". up ." "left down right"; gap: 10px; margin-top: 10px; }
-        .btn-control { width: 65px; height: 65px; background: var(--primary); color: white; border: none; border-radius: 50%; font-size: 1.3rem; cursor: pointer; user-select: none; transition: background 0.1s; }
-        .btn-control:active, .btn-control.active { background: #004fc4; transform: scale(0.95); }
-        #btnUp { grid-area: up; } #btnLeft { grid-area: left; } #btnDown { grid-area: down; } #btnRight { grid-area: right; }
         button#btnConectar { background: #34c759; color: white; border: none; padding: 12px 35px; font-size: 1rem; border-radius: 8px; cursor: pointer; font-weight: bold; }
+        button#btnConectar:disabled { background: #555; }
     </style>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
@@ -28,49 +23,25 @@
 <body>
 
     <h1>Painel de Controle</h1>
-    <button id="btnConectar" onclick="iniciarConexao()">CONECTAR AO ROBÔ</button>
+    <button id="btnConectar" onclick="iniciarFluxoSinalizacao()">CONECTAR AO ROBÔ</button>
 
     <div class="dashboard">
-        
         <div class="card">
             <div class="video-container">
-                <span class="cam-label">CAM 1 - Fluxo de Vídeo Ativo</span>
                 <video id="videoRemoto1" autoplay playsinline muted></video>
             </div>
         </div>
 
         <div class="card">
-            <h3>Telemetria Integrada</h3>
+            <h3>Telemetria</h3>
             <div class="sensor-grid">
-                <div class="sensor-item">
-                    <div>Bússola (Celular)</div>
-                    <div id="valBussola" class="sensor-val">0°</div>
-                </div>
-                <div class="sensor-item">
-                    <div>Proximidade (Laser ESP)</div>
-                    <div id="valDistancia" class="sensor-val">-- mm</div>
-                </div>
-                <div class="sensor-item" style="grid-column: span 2;">
-                    <div>GPS (Celular)</div>
-                    <div id="valGPS" class="sensor-val" style="font-size: 1rem;">Aguardando link...</div>
-                </div>
+                <div class="sensor-item"><div>Bússola</div><div id="valBussola" class="sensor-val">0°</div></div>
+                <div class="sensor-item"><div>Proximidade</div><div id="valDistancia" class="sensor-val">-- mm</div></div>
             </div>
         </div>
-
-        <div class="card">
-            <h3>Controles Ativos</h3>
-            <div class="control-pad">
-                <button id="btnUp" class="btn-control" onmousedown="enviar('F')" onmouseup="enviar('S')" ontouchstart="enviar('F')" ontouchend="enviar('S')">▲</button>
-                <button id="btnLeft" class="btn-control" onmousedown="enviar('E')" onmouseup="enviar('S')" ontouchstart="enviar('E')" ontouchend="enviar('S')">◀</button>
-                <button id="btnDown" class="btn-control" onmousedown="enviar('T')" onmouseup="enviar('S')" ontouchstart="enviar('T')" ontouchend="enviar('S')">▼</button>
-                <button id="btnRight" class="btn-control" onmousedown="enviar('D')" onmouseup="enviar('S')" ontouchstart="enviar('D')" ontouchend="enviar('S')">▶</button>
-            </div>
-        </div>
-
     </div>
 
     <script>
-        // --- SUAS CREDENCIAIS REAIS ---
         const firebaseConfig = {
             apiKey: "AIzaSyAPJOs-lOFuA0zqZrJKmdrWrSr4Vf2dNx0",
             authDomain: "robo-webrtc-7b32b.firebaseapp.com",
@@ -83,143 +54,84 @@
         };
         firebase.initializeApp(firebaseConfig);
         const database = firebase.database();
+        let sinalizacaoRef = database.ref('sinalizacao');
 
         let peerConnection;
         let dataChannel;
-        
-        // Servidores de rede otimizados
-        const configuration = { 
-            iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { 
-                    urls: 'turn:openrelay.metered.ca:443',
-                    username: 'openrelayproject',
-                    credential: 'openrelayproject'
-                },
-                { 
-                    urls: 'turn:openrelay.metered.ca:80',
-                    username: 'openrelayproject',
-                    credential: 'openrelayproject'
-                }
-            ] 
-        };
+        const configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] };
 
-        async function iniciarConexao() {
-            document.getElementById("btnConectar").innerText = "Conectando...";
+        async function iniciarFluxoSinalizacao() {
+            document.getElementById("btnConectar").innerText = "Sincronizando...";
             document.getElementById("btnConectar").disabled = true;
 
-            peerConnection = new RTCPeerConnection(configuration);
+            // 1. Limpa o lixo anterior no Firebase para forçar o robô a resetar o estado
+            await sinalizacaoRef.remove();
 
-            // Abre o canal de dados para comandos
-            dataChannel = peerConnection.createDataChannel("comandos");
-            dataChannel.onmessage = receberTelemetria;
+            // Pequena folga de 500ms para o robô notar a limpeza e se preparar
+            setTimeout(async () => {
+                peerConnection = new RTCPeerConnection(configuration);
 
-            // --- REVISADO: CAPTURA BLINDADA PARA LOOPBACK E VEÍCULOS REAIS ---
-            peerConnection.ontrack = (event) => {
-                console.log("Sinal de vídeo interceptado!");
-                const videoElement = document.getElementById('videoRemoto1');
-                
-                if (event.streams && event.streams[0]) {
-                    videoElement.srcObject = event.streams[0];
-                } else {
-                    // Se o navegador enviar trilha isolada (comum em testes locais), monta o stream na hora
-                    if (!videoElement.srcObject) {
-                        videoElement.srcObject = new MediaStream([event.track]);
-                    }
-                }
-                
-                // Vence a barreira de segurança de inicialização de mídia
-                videoElement.play().catch(err => console.log("Aguardando play automático:", err));
-            };
-
-            const iceCandidatesRef = database.ref('sinalizacao/operador/iceCandidates');
-            
-            // Limpa lixo de sessões travadas anteriores no banco
-            await database.ref('sinalizacao').remove(); 
-
-            peerConnection.onicecandidate = (event) => {
-                if (event.candidate) iceCandidatesRef.push(event.candidate.toJSON());
-            };
-
-            // Gera oferta solicitando vídeo ativamente
-            const offer = await peerConnection.createOffer({ offerToReceiveVideo: true, offerToReceiveAudio: false });
-            await peerConnection.setLocalDescription(offer);
-            
-            await database.ref('sinalizacao/operador/offer').set({ type: offer.type, sdp: offer.sdp });
-
-            // Aguarda a resposta vinda do celular do robô
-            database.ref('sinalizacao/robo/answer').on('value', async (snapshot) => {
-                const answer = snapshot.val();
-                if (answer && !peerConnection.currentRemoteDescription) {
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+                dataChannel = peerConnection.createDataChannel("comandos");
+                dataChannel.onmessage = receberTelemetria;
+                dataChannel.onopen = () => {
                     document.getElementById("btnConectar").innerText = "SISTEMA ONLINE";
                     document.getElementById("btnConectar").style.background = "#8e8e93";
-                }
-            });
+                };
 
-            // Adiciona candidatos ICE remotos vindos do robô
-            database.ref('sinalizacao/robo/iceCandidates').on('child_added', snapshot => {
-                const candidate = snapshot.val();
-                if (candidate) peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-            });
+                peerConnection.ontrack = (event) => {
+                    const videoElement = document.getElementById('videoRemoto1');
+                    if (event.streams && event.streams[0]) {
+                        videoElement.srcObject = event.streams[0];
+                    } else if (!videoElement.srcObject) {
+                        videoElement.srcObject = new MediaStream([event.track]);
+                    }
+                    videoElement.play().catch(e => console.log(e));
+                };
+
+                peerConnection.onicecandidate = (event) => {
+                    if (event.candidate) sinalizacaoRef.child('operador/iceCandidates').push(event.candidate.toJSON());
+                };
+
+                peerConnection.oniceconnectionstatechange = () => {
+                    if (peerConnection.iceConnectionState === "disconnected" || peerConnection.iceConnectionState === "failed") {
+                        document.getElementById("btnConectar").innerText = "CONEXÃO CAIU - RECONECTAR";
+                        document.getElementById("btnConectar").style.background = "#ff3b30";
+                        document.getElementById("btnConectar").disabled = false;
+                    }
+                };
+
+                const offer = await peerConnection.createOffer({ offerToReceiveVideo: true });
+                await peerConnection.setLocalDescription(offer);
+                await sinalizacaoRef.child('operador/offer').set({ type: offer.type, sdp: offer.sdp });
+
+                // Aguarda resposta do robô
+                sinalizacaoRef.child('robo/answer').on('value', async (snapshot) => {
+                    const answer = snapshot.val();
+                    if (answer && !peerConnection.currentRemoteDescription) {
+                        await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+                    }
+                });
+
+                // Adiciona candidatos do robô
+                sinalizacaoRef.child('robo/iceCandidates').on('child_added', snapshot => {
+                    const candidate = snapshot.val();
+                    if (candidate && peerConnection) peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+                });
+
+            }, 500);
         }
 
-        // Envio de strings pelo DataChannel
-        function enviar(comando) {
-            if (dataChannel && dataChannel.readyState === "open") {
-                dataChannel.send(comando);
-            }
-        }
-
-        // Mapeamento de Teclado PC (WASD e Setas)
-        const comandosTeclado = {
-            'w': 'F', 'ArrowUp': 'F',
-            'a': 'E', 'ArrowLeft': 'E',
-            's': 'T', 'ArrowDown': 'T',
-            'd': 'D', 'ArrowRight': 'D'
-        };
-        let teclaAtiva = null;
-
-        window.addEventListener('keydown', (e) => {
-            if (comandosTeclado[e.key] && teclaAtiva !== e.key) {
-                teclaAtiva = e.key;
-                enviar(comandosTeclado[e.key]);
-                atualizarCorBotao(comandosTeclado[e.key], true);
-            }
-        });
-
-        window.addEventListener('keyup', (e) => {
-            if (comandosTeclado[e.key] && teclaAtiva === e.key) {
-                teclaAtiva = null;
-                enviar('S');
-                atualizarCorBotao(comandosTeclado[e.key], false);
-            }
-        });
-
-        function atualizarCorBotao(comando, ativar) {
-            let id = comando === 'F' ? "btnUp" : comando === 'E' ? "btnLeft" : comando === 'T' ? "btnDown" : comando === 'D' ? "btnRight" : null;
-            if(id) document.getElementById(id).classList.toggle('active', activar);
-        }
-
-        // Processamento dos pacotes string passados pelo robô
         function receberTelemetria(event) {
             try {
                 const dados = JSON.parse(event.data);
                 if (dados.tipo === "telemetria") {
                     const partes = dados.payload.split(';');
                     let valores = {};
-                    partes.forEach(p => {
-                        const par = p.split(':');
-                        if(par.length === 2) valores[par[0]] = par[1];
-                    });
-
+                    partes.forEach(p => { const par = p.split(':'); if(par.length === 2) valores[par[0]] = par[1]; });
                     if (valores['DIR']) document.getElementById('valBussola').innerText = `${valores['DIR']}°`;
                     if (valores['DIST']) document.getElementById('valDistancia').innerText = `${valores['DIST']} mm`;
-                    if (valores['LAT'] && valores['LON'] && valores['LAT'] !== "0" && valores['LAT'] !== "0.0") {
-                        document.getElementById('valGPS').innerText = `${parseFloat(valores['LAT']).toFixed(5)}, ${parseFloat(valores['LON']).toFixed(5)}`;
-                    }
                 }
-            } catch (err) { console.error("Erro interpretando telemetria:", err); }
+            } catch (err) {}
         }
     </script>
 </body>
