@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Robô - Transmissão Automatizada</title>
+    <title>Robô - Transmissão Automatizada Pro</title>
     <style>
         body { font-family: Arial, sans-serif; background: #111; color: #fff; text-align: center; padding: 20px; }
         .status-box { border: 1px solid #333; padding: 15px; margin: 10px auto; max-width: 400px; border-radius: 8px; background: #222; }
@@ -18,7 +18,7 @@
 
     <h1>Robô - Modo Autônomo Ativo</h1>
     <div class="status-box">
-        <p>Status WebRTC: <span id="statusWebRTC" class="status">Inicializando...</span></p>
+        <p>Status WebRTC: <span id="statusWebRTC" class="status">Inicializando Câmera...</span></p>
         <p>Bússola Local: <span id="txtBussola" style="color: #007aff; font-weight: bold;">0°</span></p>
     </div>
 
@@ -39,56 +39,86 @@
         };
         firebase.initializeApp(firebaseConfig);
         const database = firebase.database();
-
-        let localStream1;
-        let peerConnection;
-        let dataChannel;
         let sinalizacaoRef = database.ref('sinalizacao');
-        let intervaloTelemetria;
+
+        let localStream1 = null;
+        let peerConnection = null;
+        let dataChannel = null;
+        let intervaloTelemetria = null;
 
         let celularLat = 0.0, celularLon = 0.0, celularDirecao = 0, esp32Distancia = "--";
         const configuration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] };
 
-        // Inicialização automática ao carregar a página
+        // Inicialização em ordem cronológica estrita
         window.onload = async () => {
-            atualizarStatus("Aguardando Permissão de Mídia...", "#ff9500");
             try {
                 if ('wakeLock' in navigator) await navigator.wakeLock.request('screen');
-                await iniciarCamera();
+                
+                // 1. Primeiro garante a câmera ligada na tela do celular
+                await iniciarCameraResiliente();
+                
+                // 2. Com a câmera ligada, ativa sensores
                 ativarSensores();
+                
+                // 3. Por último, abre as portas para escutar o operador
                 configurarEscutaSinalizacao();
             } catch (e) {
-                atualizarStatus("Erro fatal: " + e.message, "#ff3b30");
+                atualizarStatus("Erro de Inicialização: " + e.message, "#ff3b30");
             }
         };
 
-        async function iniciarCamera() {
+        async function iniciarCameraResiliente() {
+            const videoElement = document.getElementById('videoLocal1');
+            
+            // Força reset de segurança no elemento de vídeo antes do fluxo
+            videoElement.srcObject = null;
+
             try {
+                // Tenta câmera traseira em resolução equilibrada para taxa de atualização rápida
                 localStream1 = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } },
+                    video: { facingMode: "environment", width: 640, height: 480 },
                     audio: false
                 });
-                document.getElementById('videoLocal1').srcObject = localStream1;
             } catch (e) {
-                // Fallback para qualquer câmera se a traseira falhar
-                localStream1 = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-                document.getElementById('videoLocal1').srcObject = localStream1;
+                console.log("Falha na câmera traseira, tentando padrão/frontal...");
+                // Fallback total
+                localStream1 = await navigator.mediaDevices.getUserMedia({
+                    video: true,
+                    audio: false
+                });
+            }
+
+            if (localStream1) {
+                videoElement.srcObject = localStream1;
+                // Força o play físico do hardware no Android
+                await videoElement.play().catch(err => console.log("Aguardando interação:", err));
+                console.log("Câmera local renderizada com sucesso.");
+            } else {
+                throw new Error("Não foi possível capturar nenhuma câmera.");
             }
         }
 
         function configurarEscutaSinalizacao() {
             atualizarStatus("Pronto! Aguardando Operador...", "#007aff");
             
-            // Escuta permanentemente quando o operador joga uma oferta nova no banco
+            // Remove listeners antigos antes de registrar o novo para evitar dupla execução
+            sinalizacaoRef.child('operador/offer').off();
+            
             sinalizacaoRef.child('operador/offer').on('value', async (snapshot) => {
                 const offer = snapshot.val();
+                
+                // Se o operador limpou o banco ou deslogou
                 if (!offer) {
                     resetarConexaoLocal();
                     return;
                 }
 
-                if (peerConnection && peerConnection.signalingState !== "stable") return;
+                // Proteção para não quebrar conexões que já estão estabelecidas e estáveis
+                if (peerConnection && (peerConnection.connectionState === "connected" || peerConnection.signalingState !== "stable")) {
+                    return;
+                }
 
+                console.log("Oferta recebida do operador. Montando PeerConnection...");
                 criarPeerConnection();
 
                 try {
@@ -98,14 +128,17 @@
                     
                     await sinalizacaoRef.child('robo/answer').set({ type: answer.type, sdp: answer.sdp });
                 } catch (err) {
-                    console.error("Erro ao responder oferta:", err);
+                    console.error("Erro na negociação do WebRTC:", err);
+                    resetarConexaoLocal();
                 }
             });
 
-            // Escuta candidatos ICE do operador
+            sinalizacaoRef.child('operador/iceCandidates').off();
             sinalizacaoRef.child('operador/iceCandidates').on('child_added', snapshot => {
                 const candidate = snapshot.val();
-                if (candidate && peerConnection) peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+                if (candidate && peerConnection && peerConnection.remoteDescription) {
+                    peerConnection.addIceCandidate(new RTCIceCandidate(candidate)).catch(e => {});
+                }
             });
         }
 
@@ -114,29 +147,36 @@
 
             peerConnection = new RTCPeerConnection(configuration);
 
+            // Injeta os tracks de vídeo ativos de forma segura
             if (localStream1) {
-                localStream1.getTracks().forEach(track => peerConnection.addTrack(track, localStream1));
+                localStream1.getTracks().forEach(track => {
+                    peerConnection.addTrack(track, localStream1);
+                });
             }
 
             peerConnection.onicecandidate = (event) => {
                 if (event.candidate) sinalizacaoRef.child('robo/iceCandidates').push(event.candidate.toJSON());
             };
 
-            // Inteligência de reconexão: vigia se o sinal caiu
             peerConnection.oniceconnectionstatechange = () => {
-                console.log("Estado ICE mudou para:", peerConnection.iceConnectionState);
-                if (peerConnection.iceConnectionState === "disconnected" || peerConnection.iceConnectionState === "failed") {
-                    atualizarStatus("Conexão perdida. Reiniciando...", "#ff3b30");
-                    sinalizacaoRef.remove(); // Força o operador a reiniciar a oferta
+                const state = peerConnection.iceConnectionState;
+                console.log("Mudança de estado ICE:", state);
+                if (state === "disconnected" || state === "failed") {
+                    atualizarStatus("Sinal instável. Resetando...", "#ff3b30");
+                    resetarConexaoLocal();
                 }
             };
 
             peerConnection.ondatachannel = (event) => {
                 dataChannel = event.channel;
-                dataChannel.onmessage = (e) => { document.getElementById("txtComando").innerText = e.data; };
+                dataChannel.onmessage = (e) => { 
+                    document.getElementById("txtComando").innerText = e.data; 
+                };
+                
                 dataChannel.onopen = () => {
                     atualizarStatus("Conectado ao Operador", "#4cd964");
-                    clearInterval(intervaloTelemetria);
+                    
+                    if (intervaloTelemetria) clearInterval(intervaloTelemetria);
                     intervaloTelemetria = setInterval(() => {
                         if (dataChannel && dataChannel.readyState === "open") {
                             const pacote = `LAT:${celularLat};LON:${celularLon};DIR:${celularDirecao};DIST:${esp32Distancia}`;
@@ -148,7 +188,7 @@
         }
 
         function resetarConexaoLocal() {
-            clearInterval(intervaloTelemetria);
+            if (intervaloTelemetria) { clearInterval(intervaloTelemetria); intervaloTelemetria = null; }
             if (dataChannel) { dataChannel.close(); dataChannel = null; }
             if (peerConnection) { peerConnection.close(); peerConnection = null; }
             atualizarStatus("Aguardando Operador...", "#007aff");
@@ -156,11 +196,24 @@
 
         function atualizarStatus(texto, cor) {
             const el = document.getElementById("statusWebRTC");
-            el.innerText = texto;
-            el.style.color = cor;
+            if (el) {
+                el.innerText = texto;
+                el.style.color = cor;
+            }
         }
 
-        function ativarSensores() {
+        function toggleStatusClass(connected) {
+            const el = document.getElementById("statusWebRTC");
+            if(el) el.className = connected ? "status connected" : "status";
+        }
+
+        function verificarEstadoConexao() {
+            if (peerConnection) {
+                toggleStatusClass(peerConnection.iceConnectionState === "connected");
+            }
+        }
+
+        function activarSensores() {
             if ("geolocation" in navigator) {
                 navigator.geolocation.watchPosition(p => { celularLat = p.coords.latitude; celularLon = p.coords.longitude; }, null, { enableHighAccuracy: true });
             }
