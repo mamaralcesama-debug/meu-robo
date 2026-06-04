@@ -15,7 +15,6 @@
         .video-container { width: 100%; position: relative; background: #000; border-radius: 8px; overflow: hidden; aspect-ratio: 4/3; }
         video { width: 100%; height: 100%; object-fit: cover; background: #000; }
         
-        /* OSD AJUSTADO APENAS PARA RETRO */
         .osd-label { position: absolute; background: rgba(0, 0, 0, 0.6); color: #4cd964; padding: 4px 8px; font-family: 'Courier New', monospace; font-size: 0.85rem; font-weight: bold; border-radius: 4px; pointer-events: none; border: 1px solid rgba(76, 217, 100, 0.3); }
         #osdTras   { bottom: 15px; left: 50%; transform: translateX(-50%); color: #ff3b30; border-color: rgba(255, 59, 48, 0.4); font-size: 1rem; }
         #osdBussola { top: 15px; right: 15px; color: #007aff; border-color: rgba(0,122,255,0.4); }
@@ -115,20 +114,47 @@
 
         async function iniciarFluxoSinalizacao() {
             document.getElementById("btnConectar").innerText = "Sincronizando...";
+            
+            // Fecha conexões antigas locais se o operador clicar de novo
+            if(peerConnection) { peerConnection.close(); peerConnection = null; }
+
+            // Limpa o banco de dados completamente de maneira limpa
             await sinalizacaoRef.remove();
+
+            // Pequeno delay para garantir que o robô detectou a limpeza e resetou do lado dele
             setTimeout(async () => {
                 peerConnection = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+                
                 dataChannel = peerConnection.createDataChannel("comandos");
                 dataChannel.onmessage = receberTelemetriaE_OSD;
                 dataChannel.onopen = () => { document.getElementById("btnConectar").innerText = "SISTEMA ONLINE"; };
+                
                 peerConnection.ontrack = (e) => { document.getElementById('videoRemoto1').srcObject = e.streams[0]; };
-                peerConnection.onicecandidate = (e) => { if (e.candidate) sinalizacaoRef.child('operador/iceCandidates').push(e.candidate.toJSON()); };
+                
+                peerConnection.onicecandidate = (e) => { 
+                    if (e.candidate) sinalizacaoRef.child('operador/iceCandidates').push(e.candidate.toJSON()); 
+                };
+
                 const offer = await peerConnection.createOffer({ offerToReceiveVideo: true });
                 await peerConnection.setLocalDescription(offer);
+                
+                // Envia a oferta inicial estruturada
                 await sinalizacaoRef.child('operador/offer').set({ type: offer.type, sdp: offer.sdp });
-                sinalizacaoRef.child('robo/answer').on('value', async (s) => { if (s.val() && !peerConnection.currentRemoteDescription) await peerConnection.setRemoteDescription(new RTCSessionDescription(s.val())); });
-                sinalizacaoRef.child('robo/iceCandidates').on('child_added', s => { if (s.val() && peerConnection) peerConnection.addIceCandidate(new RTCIceCandidate(s.val())); });
-            }, 500);
+                
+                // Escuta assíncrona da resposta do robô
+                sinalizacaoRef.child('robo/answer').on('value', async (s) => { 
+                    if (s.val() && !peerConnection.currentRemoteDescription) {
+                        await peerConnection.setRemoteDescription(new RTCSessionDescription(s.val()));
+                    }
+                });
+                
+                // Agrega candidatos ICE do robô de forma dinâmica
+                sinalizacaoRef.child('robo/iceCandidates').on('child_added', s => { 
+                    if (s.val() && peerConnection && peerConnection.remoteDescription) {
+                        peerConnection.addIceCandidate(new RTCIceCandidate(s.val())).catch(e => {});
+                    }
+                });
+            }, 400);
         }
 
         function enviar(comando) { if (dataChannel && dataChannel.readyState === "open") dataChannel.send(comando); }
