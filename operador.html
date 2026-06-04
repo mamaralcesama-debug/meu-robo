@@ -57,7 +57,7 @@
         #btnDown  { grid-column: 2; grid-row: 2; }
         #btnRight { grid-column: 3; grid-row: 2; }
 
-        .status-header { background: #1e1e1e; padding: 10px 30px; font-weight: bold; border-radius: 8px; border: 1px solid #333; color: #ff9500; margin-bottom: 10px; }
+        .status-header { background: #1e1e1e; padding: 10px 30px; font-weight: bold; border-radius: 8px; border: 1px solid #333; color: #ff9500; margin-bottom: 10px; transition: color 0.3s ease; }
     </style>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
@@ -150,13 +150,15 @@
             document.getElementById("statusPainel").innerText = "PUBLICANDO CANAL DE SINALIZAÇÃO...";
             document.getElementById("statusPainel").style.color = "#ff9500";
 
-            if(peerConnection) { peerConnection.close(); }
+            if(peerConnection) { 
+                peerConnection.close(); 
+                peerConnection = null;
+            }
             await sinalizacaoRef.remove();
 
             peerConnection = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
             
             dataChannel = peerConnection.createDataChannel("comandos");
-            dataChannel.onmessage =接收erTelemetriaE_OSD;
             dataChannel.onmessage = receberTelemetriaE_OSD;
             dataChannel.onopen = () => { 
                 document.getElementById("statusPainel").innerText = "SISTEMA CONECTADO AO ROVER"; 
@@ -169,6 +171,25 @@
                 if (e.candidate) sinalizacaoRef.child('operador/iceCandidates').push(e.candidate.toJSON()); 
             };
 
+            // MOTOR DE RECONEXÃO ROBUSTO (Destrói e reconstrói o Peer se a conexão falhar ou cair)
+            peerConnection.oniceconnectionstatechange = () => {
+                console.log("Estado ICE:", peerConnection.iceConnectionState);
+                if (peerConnection.iceConnectionState === "disconnected" || 
+                    peerConnection.iceConnectionState === "failed" || 
+                    peerConnection.iceConnectionState === "closed") {
+                    
+                    document.getElementById("statusPainel").innerText = "CONEXÃO PERDIDA! RECONECTANDO EM 3 SEGUNDOS...";
+                    document.getElementById("statusPainel").style.color = "#ff3b30";
+                    
+                    pararEnvioContinuo();
+
+                    setTimeout(() => {
+                        console.log("Reiniciando peer connection completo...");
+                        publicarOfertaEstatica();
+                    }, 3000);
+                }
+            };
+
             const offer = await peerConnection.createOffer({ offerToReceiveVideo: true });
             await peerConnection.setLocalDescription(offer);
             
@@ -176,7 +197,7 @@
             document.getElementById("statusPainel").innerText = "AGUARDANDO CONEXÃO AUTOMÁTICA DO ROBÔ...";
 
             sinalizacaoRef.child('robo/answer').on('value', async (s) => { 
-                if (s.val() && !peerConnection.currentRemoteDescription) {
+                if (s.val() && peerConnection && !peerConnection.currentRemoteDescription) {
                     await peerConnection.setRemoteDescription(new RTCSessionDescription(s.val()));
                     console.log("Answer recebida automaticamente.");
                 }
@@ -187,13 +208,6 @@
                     peerConnection.addIceCandidate(new RTCIceCandidate(s.val())).catch(e => {});
                 }
             });
-
-            peerConnection.oniceconnectionstatechange = () => {
-                if(peerConnection.iceConnectionState === "disconnected" || peerConnection.iceConnectionState === "failed") {
-                    document.getElementById("statusPainel").innerText = "ROBÔ CAIU. AGUARDANDO RETORNO AUTOMÁTICO...";
-                    document.getElementById("statusPainel").style.color = "#ff3b30";
-                }
-            };
         }
 
         function enviar(comando) { if (dataChannel && dataChannel.readyState === "open") dataChannel.send(comando); }
