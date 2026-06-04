@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Painel do Observador</title>
+    <title>Painel do Observador (RTDB)</title>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
     <style>
         body { font-family: Arial, sans-serif; text-align: center; background: #111; color: #fff; margin: 0; padding: 10px; }
         .container { max-width: 600px; margin: auto; }
@@ -27,22 +27,20 @@
     </div>
 
     <script>
-        // ======= CONFIGURAÇÃO DO FIREBASE (USE A MESMA DO ROBO.HTML) =======
         const firebaseConfig = {
-  apiKey: "AIzaSyAPJOs-lOFuA0zqZrJKmdrWrSr4Vf2dNx0",
-  authDomain: "robo-webrtc-7b32b.firebaseapp.com",
-  databaseURL: "https://robo-webrtc-7b32b-default-rtdb.firebaseio.com",
-  projectId: "robo-webrtc-7b32b",
-  storageBucket: "robo-webrtc-7b32b.firebasestorage.app",
-  messagingSenderId: "488205904754",
-  appId: "1:488205904754:web:52a95187cb2896da5d8beb",
-  measurementId: "G-N5F97EE30J"
-};
+            apiKey: "AIzaSyAPJOs-lOFuA0zqZrJKmdrWrSr4Vf2dNx0",
+            authDomain: "robo-webrtc-7b32b.firebaseapp.com",
+            databaseURL: "https://robo-webrtc-7b32b-default-rtdb.firebaseio.com",
+            projectId: "robo-webrtc-7b32b",
+            storageBucket: "robo-webrtc-7b32b.firebasestorage.app",
+            messagingSenderId: "488205904754",
+            appId: "1:488205904754:web:52a95187cb2896da5d8beb",
+            measurementId: "G-N5F97EE30J"
+        };
         firebase.initializeApp(firebaseConfig);
-        const db = firebase.firestore();
-        const docRef = db.collection('calls').doc('robot_stream');
+        const db = firebase.database();
+        const roomRef = db.ref('robot_stream');
 
-        // ======= CONFIGURAÇÃO WEBRTC (DEVE SER IGUAL À DO ROBÔ) =======
         const rtcConfig = {
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
@@ -59,15 +57,12 @@
         const statusDiv = document.getElementById('status');
 
         function conectarAoRobo() {
-            if (peerConnection) {
-                peerConnection.close();
-            }
+            if (peerConnection) peerConnection.close();
 
             peerConnection = new RTCPeerConnection(rtcConfig);
             statusDiv.className = "connecting";
             statusDiv.innerText = "Conectando e negociando canais...";
 
-            // Quando o fluxo de vídeo remanescente chegar do robô, joga na tela
             peerConnection.ontrack = event => {
                 const remoteVideo = document.getElementById('remoteVideo');
                 if (remoteVideo.srcObject !== event.streams[0]) {
@@ -77,7 +72,6 @@
                 }
             };
 
-            // Monitora quedas e status da conexão
             peerConnection.onconnectionstatechange = () => {
                 if (peerConnection.connectionState === 'connected') {
                     statusDiv.className = "connected";
@@ -88,49 +82,36 @@
                 }
             };
 
-            // Envia os caminhos de rede (ICE Candidates) gerados pelo Observador de volta para o Firebase
             peerConnection.onicecandidate = event => {
                 if (event.candidate) {
-                    docRef.collection('calleeCandidates').add(event.candidate.toJSON());
+                    roomRef.child('calleeCandidates').push(event.candidate.toJSON());
                 }
             };
 
-            // Escuta as propostas de conexão enviadas pelo robô (incluindo ICE Restarts automáticos)
-            docRef.onSnapshot(async snapshot => {
-                const data = snapshot.data();
-                
-                // Se o robô mandar uma oferta (seja inicial ou de reconexão)
-                if (data?.offer && (peerConnection.signalingState !== 'have-remote-offer' || data.offer.status === "reconnecting")) {
+            // Escuta a oferta do robô
+            roomRef.child('offer').on('value', async snapshot => {
+                const offer = snapshot.val();
+                if (offer && (peerConnection.signalingState !== 'have-remote-offer' || offer.status === "reconnecting")) {
                     statusDiv.className = "connecting";
-                    statusDiv.innerText = "Sincronizando sinal de reconexão...";
+                    statusDiv.innerText = "Sincronizando sinal...";
                     
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
-                    
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
                     const answerDescription = await peerConnection.createAnswer();
                     await peerConnection.setLocalDescription(answerDescription);
 
-                    const answer = {
+                    await roomRef.child('answer').set({
                         type: answerDescription.type,
                         sdp: answerDescription.sdp,
-                    };
-                    await docRef.update({ answer });
+                    });
                 }
             });
 
-            // Captura os ICE Candidates enviados pelo robô celular
-            docRef.collection('callerCandidates').onSnapshot(snapshot => {
-                snapshot.docChanges().forEach(change => {
-                    if (change.type === 'added') {
-                        const data = change.doc.data();
-                        const candidate = new RTCIceCandidate(data);
-                        peerConnection.addIceCandidate(candidate).catch(e => console.error(e));
-                    }
-                });
+            // Escuta candidatos enviados pelo robô
+            roomRef.child('callerCandidates').on('child_added', snapshot => {
+                const candidate = new RTCIceCandidate(snapshot.val());
+                peerConnection.addIceCandidate(candidate).catch(e => console.error(e));
             });
         }
-
-        // Como o navegador exige interação do usuário para dar play em vídeos com áudio/mídia externa,
-        // deixamos o gatilho inicial atrelado ao clique do botão.
     </script>
 </body>
 </html>
