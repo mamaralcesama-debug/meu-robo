@@ -72,7 +72,7 @@
             <div class="video-container">
                 <video id="videoRemoto1" autoplay playsinline muted></video>
                 <div id="osdGPS" class="osd-label">GPS: Buscando...</div>
-                <div id="osdBussola" class="osd-label">DIR: 000°</div>
+                <div id="osdBussola" class="osd-label">DIR: ---°</div>
                 <div id="osdTras" class="osd-label">DISTÂNCIA RECUO: -- mm</div>
             </div>
         </div>
@@ -151,13 +151,13 @@
 
             sinalizacaoRef.child('robo/answer').off();
             sinalizacaoRef.child('robo/iceCandidates').off();
+            sinalizacaoRef.child('operador/iceCandidates').off();
 
             if(peerConnection) { 
                 peerConnection.close(); 
                 peerConnection = null;
             }
             
-            // Limpa o banco de forma limpa
             await Promise.all([
                 sinalizacaoRef.child('operador').remove(),
                 sinalizacaoRef.child('robo').remove()
@@ -191,17 +191,11 @@
                 }
             };
 
-            const offer = await peerConnection.createOffer({ offerToReceiveVideo: true });
-            await peerConnection.setLocalDescription(offer);
-            
-            // Publica a oferta. O celular perceberá o evento na hora
-            await sinalizacaoRef.child('operador/offer').set({ type: offer.type, sdp: offer.sdp });
-            document.getElementById("statusPainel").innerText = "OFERTA ENVIADA. AGUARDANDO RESPOSTA DO ROVER...";
-
+            // CRÍTICO: Prepara o ouvido antes de enviar o sinal
             sinalizacaoRef.child('robo/answer').on('value', async (s) => { 
-                if (s.val() && peerConnection && !peerConnection.currentRemoteDescription) {
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(s.val()));
-                    console.log("Resposta do Rover processada.");
+                const answerData = s.val();
+                if (answerData && peerConnection && !peerConnection.currentRemoteDescription) {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(answerData));
                 }
             });
             
@@ -210,6 +204,12 @@
                     peerConnection.addIceCandidate(new RTCIceCandidate(s.val())).catch(() => {});
                 }
             });
+
+            const offer = await peerConnection.createOffer({ offerToReceiveVideo: true });
+            await peerConnection.setLocalDescription(offer);
+            
+            await sinalizacaoRef.child('operador/offer').set({ type: offer.type, sdp: offer.sdp });
+            document.getElementById("statusPainel").innerText = "OFERTA ENVIADA. AGUARDANDO RESPOSTA...";
         }
 
         function enviar(comando) { if (dataChannel && dataChannel.readyState === "open") dataChannel.send(comando); }
@@ -228,6 +228,7 @@
             enviar('S'); 
         }
 
+        // Extrator de Telemetria Atualizado e Tolerante a Falhas
         function receberTelemetriaE_OSD(event) {
             try {
                 const dados = JSON.parse(event.data);
@@ -236,18 +237,30 @@
                     let valores = {};
                     partes.forEach(p => { const par = p.split(':'); if(par.length === 2) valores[par[0]] = par[1]; });
                     
-                    if (valores['DIR'])  document.getElementById('osdBussola').innerText = `DIR: ${valores['DIR']}°`;
+                    // Atualiza Direção/Bússola
+                    if (valores['DIR']) {
+                        document.getElementById('osdBussola').innerText = `DIR: ${valores['DIR']}°`;
+                    }
+                    
+                    // Atualiza Sensor de Ré TOF
                     if (valores['TOF_T']) {
                         let v = valores['TOF_T'];
                         document.getElementById('osdTras').innerText = (v === "8190") ? "RÉ: LIVRE" : `DISTÂNCIA RECUO: ${v} mm`;
                     }
-                    if (valores['LAT'] && valores['LON'] && valores['LAT'] !== "0.0") {
-                        const latNum = parseFloat(valores['LAT']); const lonNum = parseFloat(valores['LON']);
-                        document.getElementById('osdGPS').innerText = `GPS: ${latNum.toFixed(5)}, ${lonNum.toFixed(5)}`;
-                        atualizarMapa(latNum, lonNum);
+                    
+                    // Atualiza Localização GPS e Mapa Dinâmico
+                    if (valores['LAT'] && valores['LON'] && valores['LAT'] !== "0.0" && valores['LAT'] !== "0") {
+                        const latNum = parseFloat(valores['LAT']); 
+                        const lonNum = parseFloat(valores['LON']);
+                        if(!isNaN(latNum) && !isNaN(lonNum)) {
+                            document.getElementById('osdGPS').innerText = `GPS: ${latNum.toFixed(5)}, ${lonNum.toFixed(5)}`;
+                            atualizarMapa(latNum, lonNum);
+                        }
                     }
                 }
-            } catch (err) {}
+            } catch (err) {
+                console.log("Erro ao processar pacote de dados recebido:", err);
+            }
         }
 
         window.addEventListener('keydown', (e) => { 
