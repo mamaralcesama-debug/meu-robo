@@ -7,7 +7,7 @@
 <body style="background: #121212; color: #fff; font-family: sans-serif; text-align: center; padding: 20px;">
 
     <h2>Rover - Servidor de Mídia e Comandos</h2>
-    <div id="status" style="padding: 10px; background: #ff9500; color: #000; font-weight: bold; border-radius: 5px;">AGUARDANDO SINALIZAÇÃO...</div>
+    <div id="status" style="padding: 10px; background: #ff9500; color: #000; font-weight: bold; border-radius: 5px;">AGUARDANDO OPERADOR...</div>
     
     <video id="localVideo" autoplay playsinline muted style="width: 80%; max-width: 400px; margin-top: 20px; border-radius: 8px; transform: scaleX(-1);"></video>
 
@@ -30,61 +30,33 @@
             try {
                 localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
                 document.getElementById('localVideo').srcObject = localStream;
-                conectarAoOperador();
+                configurarEscuta();
             } catch (e) {
-                document.getElementById('status').innerText = "ERRO AO ACESSAR CÂMERA: " + e.message;
+                document.getElementById('status').innerText = "ERRO NA CÂMERA: " + e.message;
             }
         }
 
-        async function conectarAoOperador() {
-            if (peerConnection) {
-                peerConnection.close();
-                peerConnection = null;
-            }
-
-            document.getElementById('status').innerText = "ESCUTANDO OPERADOR (FIREBASE)...";
+        function configurarEscuta() {
+            document.getElementById('status').innerText = "AGUARDANDO OFERTA DO OPERADOR...";
             document.getElementById('status').style.background = "#ff9500";
 
-            peerConnection = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-
-            // Adiciona a câmera ao canal
-            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-
-            // Captura candidatos ICE locais e envia pro Firebase
-            peerConnection.onicecandidate = (e) => {
-                if (e.candidate) sinalizacaoRef.child('robo/iceCandidates').push(e.candidate.toJSON());
-            };
-
-            // Quando o canal de dados abrir
-            peerConnection.ondatachannel = (e) => {
-                dataChannel = e.channel;
-                dataChannel.onopen = () => {
-                    document.getElementById('status').innerText = "CONECTADO E TRANSMITINDO!";
-                    document.getElementById('status').style.background = "#34c759";
-                };
-                dataChannel.onmessage = (msg) => {
-                    // Envia os comandos recebidos da Web para o ESP32 via Serial nativa da sua aplicação antiga
-                    if(window.AndroidInterface) {
-                        window.AndroidInterface.enviarAoEsp(msg.data);
-                    } else {
-                        console.log("Comando recebido do PC:", msg.data);
-                    }
-                };
-            };
-
-            // ESCUTA ATIVA DA OFERTA (Se mudar ou sumir, o celular reseta)
+            // Fica monitorando a oferta criada pelo PC
             sinalizacaoRef.child('operador/offer').on('value', async (snapshot) => {
-                const data = snapshot.val();
-                if (data && !peerConnection.currentRemoteDescription) {
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(data));
+                const offerData = snapshot.val();
+                if (offerData) {
+                    console.log("Oferta recebida, iniciando conexão...");
+                    inicializarPeerConnection();
+                    
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(offerData));
                     const answer = await peerConnection.createAnswer();
                     await peerConnection.setLocalDescription(answer);
+                    
                     await sinalizacaoRef.child('robo/answer').set({ type: answer.type, sdp: answer.sdp });
-                    document.getElementById('status').innerText = "CONECTANDO VIA ICE...";
+                    document.getElementById('status').innerText = "OFERTA ACEITA! CONECTANDO VIA ICE...";
                 }
             });
 
-            // Escuta candidatos ICE do operador
+            // Monitora os candidatos ICE vindos do operador
             sinalizacaoRef.child('operador/iceCandidates').on('child_added', snapshot => {
                 if (snapshot.val() && peerConnection && peerConnection.remoteDescription) {
                     peerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val())).catch(e => {});
@@ -92,7 +64,33 @@
             });
         }
 
-        // Envio de Telemetria (Chamado pelo seu app Android/WebView)
+        function inicializarPeerConnection() {
+            if (peerConnection) peerConnection.close();
+
+            peerConnection = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+            peerConnection.onicecandidate = (e) => {
+                if (e.candidate) sinalizacaoRef.child('robo/iceCandidates').push(e.candidate.toJSON());
+            };
+
+            peerConnection.ondatachannel = (e) => {
+                dataChannel = e.channel;
+                dataChannel.onopen = () => {
+                    document.getElementById('status').innerText = "CONECTADO E TRANSMITINDO!";
+                    document.getElementById('status').style.background = "#34c759";
+                };
+                dataChannel.onmessage = (msg) => {
+                    if(window.AndroidInterface) {
+                        window.AndroidInterface.enviarAoEsp(msg.data);
+                    } else {
+                        console.log("Comando:", msg.data);
+                    }
+                };
+            };
+        }
+
         function injetarTelemetriaFronEnd(jsonString) {
             if (dataChannel && dataChannel.readyState === "open") {
                 dataChannel.send(jsonString);
