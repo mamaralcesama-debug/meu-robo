@@ -27,7 +27,6 @@
         .slider-group label span { color: var(--accent); font-weight: bold; }
         .slider-group input[type=range] { width: 100%; height: 8px; border-radius: 4px; background: #333; accent-color: var(--primary); }
         
-        /* Layout Grid Corrigido para as Setas (T Invertido) */
         .control-pad { 
             display: grid; 
             grid-template-columns: repeat(3, 65px); 
@@ -147,7 +146,7 @@
         }
 
         async function publicarOfertaEstatica() {
-            document.getElementById("statusPainel").innerText = "GERANDO OFERTA DE SINALIZAÇÃO...";
+            document.getElementById("statusPainel").innerText = "INICIANDO NOVA SESSÃO DE CONEXÃO...";
             document.getElementById("statusPainel").style.color = "#ff9500";
 
             sinalizacaoRef.child('robo/answer').off();
@@ -158,8 +157,11 @@
                 peerConnection = null;
             }
             
-            // Remove dados antigos de forma limpa e segura
-            await sinalizacaoRef.set({ reset: true });
+            // Limpa o banco de forma limpa
+            await Promise.all([
+                sinalizacaoRef.child('operador').remove(),
+                sinalizacaoRef.child('robo').remove()
+            ]);
 
             peerConnection = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
             
@@ -181,31 +183,31 @@
                     peerConnection.iceConnectionState === "failed" || 
                     peerConnection.iceConnectionState === "closed") {
                     
-                    document.getElementById("statusPainel").innerText = "CONEXÃO PERDIDA! RECONECTANDO...";
+                    document.getElementById("statusPainel").innerText = "SINAL INSTÁVEL! RECONECTANDO...";
                     document.getElementById("statusPainel").style.color = "#ff3b30";
                     pararEnvioContinuo();
 
-                    setTimeout(() => { publicarOfertaEstatica(); }, 3000);
+                    setTimeout(() => { publicarOfertaEstatica(); }, 4000);
                 }
             };
 
             const offer = await peerConnection.createOffer({ offerToReceiveVideo: true });
             await peerConnection.setLocalDescription(offer);
             
-            // Envia a oferta para a chave que o celular está vigiando
+            // Publica a oferta. O celular perceberá o evento na hora
             await sinalizacaoRef.child('operador/offer').set({ type: offer.type, sdp: offer.sdp });
-            document.getElementById("statusPainel").innerText = "AGUARDANDO ATALHO DO ROBÔ...";
+            document.getElementById("statusPainel").innerText = "OFERTA ENVIADA. AGUARDANDO RESPOSTA DO ROVER...";
 
             sinalizacaoRef.child('robo/answer').on('value', async (s) => { 
                 if (s.val() && peerConnection && !peerConnection.currentRemoteDescription) {
                     await peerConnection.setRemoteDescription(new RTCSessionDescription(s.val()));
-                    console.log("Resposta obtida com sucesso.");
+                    console.log("Resposta do Rover processada.");
                 }
             });
             
             sinalizacaoRef.child('robo/iceCandidates').on('child_added', s => { 
                 if (s.val() && peerConnection && peerConnection.remoteDescription) {
-                    peerConnection.addIceCandidate(new RTCIceCandidate(s.val())).catch(e => {});
+                    peerConnection.addIceCandidate(new RTCIceCandidate(s.val())).catch(() => {});
                 }
             });
         }
