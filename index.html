@@ -8,6 +8,8 @@
         body { font-family: Arial, sans-serif; background: #111; color: #fff; text-align: center; padding: 20px; }
         .btn-bt { background: #007aff; color: white; border: none; padding: 15px 20px; font-size: 16px; border-radius: 8px; font-weight: bold; width: 90%; max-width: 400px; }
         .btn-bt.bt-connected { background: #34c759; }
+        .status-wrtc { display: inline-block; padding: 6px 12px; border-radius: 20px; font-size: 0.9rem; font-weight: bold; margin-top: 10px; background: #333; color: #aaa; }
+        .wrtc-on { background: #28cd41; color: #fff; }
     </style>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
@@ -16,6 +18,8 @@
 
     <h1>Unidade Móvel (Foco Sensor Traseiro)</h1>
     <button id="btnBluetooth" class="btn-bt" onclick="conectarBluetoothESP32()">CONECTAR HARDWARE (ESP32)</button>
+    <br>
+    <div id="wrtcLabel" class="status-wrtc">WebRTC: Ocioso</div>
     <br><br>
     <video id="videoLocal1" autoplay playsinline muted style="width:90%; max-width:400px; border:2px solid #555;"></video>
 
@@ -44,7 +48,9 @@
             }
             await iniciarCameraResiliente();
             activarSensoresNativos();
-            configurarEscutaSinalizacao();
+            
+            // Loop de conexão automática ativa (Tenta a cada 2 segundos se estiver offline)
+            setInterval(verificarETentarConexao, 2000);
         };
 
         async function iniciarCameraResiliente() {
@@ -88,21 +94,25 @@
             }
         }
 
-        // ALTERAÇÃO CRUCIAL: Escuta resiliente e assíncrona baseada em mudanças de estado
-        function configurarEscutaSinalizacao() {
-            sinalizacaoRef.child('operador/offer').on('value', async (snapshot) => {
-                const offer = snapshot.val(); 
-                
-                // Se o operador limpou a oferta ou fechou a sessão, destruímos a conexão antiga local para esperar a próxima
-                if (!offer) {
-                    fecharConexaoExistente();
-                    return;
-                }
-                
-                // Se o operador mandou uma nova oferta e nós já estávamos conectados, resetamos para sincronizar
-                if (peerConnection) {
-                    fecharConexaoExistente();
-                }
+        // MOTOR DE RECONEXÃO PERMANENTE (Sem botões, sem F5)
+        async function verificarETentarConexao() {
+            // Se já estiver conectado de verdade, não faz nada
+            if (peerConnection && (peerConnection.connectionState === "connected" || peerConnection.iceConnectionState === "connected")) {
+                document.getElementById("wrtcLabel").innerText = "WebRTC: Conectado";
+                document.getElementById("wrtcLabel").className = "status-wrtc wrtc-on";
+                return; 
+            }
+
+            document.getElementById("wrtcLabel").innerText = "WebRTC: Escutando Operador...";
+            document.getElementById("wrtcLabel").className = "status-wrtc";
+
+            // Busca uma oferta ativa salva pelo operador
+            const snapshot = await sinalizacaoRef.child('operador/offer').get();
+            const offer = snapshot.val();
+
+            if (offer) {
+                console.log("Oferta ativa encontrada! Iniciando Handshake automático...");
+                fecharConexaoExistente(); // Limpa tentativas engasgadas anteriores
 
                 peerConnection = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
                 
@@ -128,28 +138,32 @@
                     };
                 };
 
+                // Limpa candidatos de resposta velhos para evitar conflitos de rede
+                await sinalizacaoRef.child('robo/iceCandidates').remove();
+
                 try {
                     await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
                     const answer = await peerConnection.createAnswer(); 
                     await peerConnection.setLocalDescription(answer);
                     await sinalizacaoRef.child('robo/answer').set({ type: answer.type, sdp: answer.sdp });
+                    
+                    // Escuta os candidatos de gelo criados pelo operador
+                    sinalizacaoRef.child('operador/iceCandidates').off(); // Remove escutas duplicadas
+                    sinalizacaoRef.child('operador/iceCandidates').on('child_added', s => { 
+                        if (s.val() && peerConnection && peerConnection.remoteDescription) {
+                            peerConnection.addIceCandidate(new RTCIceCandidate(s.val())).catch(e => {}); 
+                        }
+                    });
                 } catch (err) {
-                    console.error("Falha ao sincronizar WebRTC:", err);
+                    console.error("Erro no ciclo de handshake automático:", err);
                 }
-            });
-
-            // Escuta dinâmica de candidatos ICE
-            sinalizacaoRef.child('operador/iceCandidates').on('child_added', s => { 
-                if (s.val() && peerConnection && peerConnection.remoteDescription) {
-                    peerConnection.addIceCandidate(new RTCIceCandidate(s.val())).catch(e => {}); 
-                }
-            });
+            }
         }
 
         function fecharConexaoExistente() {
             if (intervaloTelemetria) { clearInterval(intervaloTelemetria); intervaloTelemetria = null; }
-            if (dataChannel) { dataChannel.close(); dataChannel = null; }
-            if (peerConnection) { peerConnection.close(); peerConnection = null; }
+            if (dataChannel) { try{dataChannel.close();}catch(e){} dataChannel = null; }
+            if (peerConnection) { try{peerConnection.close();}catch(e){} peerConnection = null; }
         }
 
         function activarSensoresNativos() {
