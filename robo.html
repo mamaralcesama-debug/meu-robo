@@ -3,50 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Robô - Transmissor Oficial</title>
+    <title>Robô - Transmissor + Telemetria Nútria</title>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
     <style>
-        body { 
-            font-family: Arial, sans-serif; 
-            text-align: center; 
-            background: #222; 
-            color: #fff; 
-            margin: 0; 
-            padding: 20px; 
-        }
-        h2 { margin-bottom: 5px; color: #0288d1; }
-        p { color: #aaa; font-size: 14px; margin-top: 0; }
-        video { 
-            width: 100%; 
-            max-width: 400px; 
-            background: #000; 
-            border-radius: 8px; 
-            border: 2px solid #444;
-        }
-        #status { 
-            font-weight: bold; 
-            margin: 15px auto; 
-            padding: 12px; 
-            border-radius: 5px; 
-            max-width: 400px;
-            box-sizing: border-box;
-        }
-        .connected { background: #2e7d32; }
-        .disconnected { background: #c62828; }
-        .connecting { background: #ef6c00; }
+        body { font-family: Arial, sans-serif; text-align: center; background: #222; color: #fff; margin: 0; padding: 20px; }
+        video { width: 100%; max-width: 400px; background: #000; border-radius: 8px; border: 2px solid #444; }
+        #status { font-weight: bold; margin: 15px auto; padding: 12px; border-radius: 5px; max-width: 400px; }
+        .connected { background: #2e7d32; } .disconnected { background: #c62828; } .connecting { background: #ef6c00; }
     </style>
 </head>
 <body>
 
-    <h2>🤖 Robô (Transmissor)</h2>
-    <p>Conexão via Realtime Database (Vídeo + Áudio Ativos)</p>
-    
+    <h2>🤖 Robô (Transmissor com GPS/Bússola)</h2>
     <video id="localVideo" autoplay playsinline muted></video>
     <div id="status" class="disconnected">Iniciando sistema...</div>
 
     <script>
-        // ======= SUAS CREDENCIAIS DO FIREBASE =======
         const firebaseConfig = {
             apiKey: "AIzaSyAPJOs-lOFuA0zqZrJKmdrWrSr4Vf2dNx0",
             authDomain: "robo-webrtc-7b32b.firebaseapp.com",
@@ -58,117 +31,101 @@
             measurementId: "G-N5F97EE30J"
         };
         
-        // Inicializa o Firebase
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
         const roomRef = db.ref('robot_stream');
 
-        // ======= CONFIGURAÇÃO WEBRTC (STUN / TURN) =======
-        const rtcConfig = {
-            iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' }, // STUN Público do Google
-                {
-                    // Servidor TURN (Essencial para contornar o bloqueio de IP do 4G)
-                    urls: 'turn:openrelay.metered.ca:443', 
-                    username: 'openrelayproject',
-                    credential: 'openrelayproject'
-                }
-            ],
-            iceCandidatePoolSize: 10,
-        };
-
         let peerConnection = null;
         let localStream = null;
-        let watchDogTimer = null; // Timer responsável pelo reload automático
+        let watchDogTimer = null;
         const statusDiv = document.getElementById('status');
 
-        // 1. Inicializa a mídia (Câmera + Microfone)
+        // VARIÁVEIS DE TELEMETRIA DO SMARTPHONE
+        let latAtual = 0, lngAtual = 0, headingAtual = 0;
+
         async function iniciarRobo() {
             try {
                 localStream = await navigator.mediaDevices.getUserMedia({
-                    video: { 
-                        facingMode: "environment", // Força câmera traseira
-                        width: { ideal: 640 }, 
-                        height: { ideal: 480 }, 
-                        frameRate: { ideal: 20 } // Otimizado para economizar banda 4G
-                    },
-                    audio: true // <--- VALIDADO: Microfone ativado para áudio em tempo real
+                    video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 20 } },
+                    audio: true
                 });
-                
-                // Exibe o vídeo local no celular do robô (com 'muted' para não dar microfonia com ele mesmo)
                 document.getElementById('localVideo').srcObject = localStream;
-
-                statusDiv.className = "connecting";
-                statusDiv.innerText = "Limpando conexões antigas...";
-
-                // Limpa registros residuais de conexões passadas no banco
+                statusDiv.className = "connecting"; statusDiv.innerText = "Limpando conexões antigas...";
+                
                 await roomRef.remove();
-                
-                // Inicializa a infraestrutura do WebRTC
                 criarPeerConnection();
-                
+                ativarSensoresNativos(); // Inicializa GPS e Bússola no celular do robô
             } catch (error) {
-                console.error("Erro ao acessar mídias:", error);
-                statusDiv.className = "disconnected";
-                statusDiv.innerText = "Erro: Permissão de câmera/áudio negada.";
+                statusDiv.className = "disconnected"; statusDiv.innerText = "Erro nas permissões de hardware.";
             }
         }
 
-        // 2. Configura a instância do WebRTC e seus ouvintes
-        function criarPeerConnection() {
-            peerConnection = new RTCPeerConnection(rtcConfig);
-            statusDiv.className = "connecting";
-            statusDiv.innerText = "Aguardando conexão do observador...";
+        // SISTEMA DE CAPTURA DO GPS E BÚSSOLA INTERNOS DO APARELHO
+        function activarSensoresNativos() {
+            if (navigator.geolocation) {
+                navigator.geolocation.watchPosition(pos => {
+                    latAtual = pos.coords.latitude; lngAtual = pos.coords.longitude;
+                }, null, { enableHighAccuracy: true });
+            }
+            if (window.DeviceOrientationEvent) {
+                window.addEventListener('deviceorientationabsolute', e => {
+                    if (e.alpha !== null) headingAtual = (360 - e.alpha) % 360;
+                }, true);
+            }
+        }
 
-            // Vincula o feed da câmera E do microfone ao canal de transmissão
+        // MONITORAMENTO DE COMANDOS DO FIREBASE -> REPASSE LOCAL (MIT APP)
+        let ultimoCmd = "";
+        roomRef.child('controls/cmd').on('value', async snapshot => {
+            const cmd = snapshot.val();
+            if (cmd) {
+                ultimoCmd = cmd;
+                try {
+                    // Manda comando pro MIT via HTTP e captura o retorno Serial que o ESP enviou de volta
+                    let resposta = await fetch(`http://localhost:8080/?send=${encodeURIComponent(cmd)}`);
+                    let dadosEsp = await resposta.text();
+                    
+                    // Sobe pacote consolidado de Telemetria (GPS Celular + Dados do ESP) para o Firebase
+                    roomRef.child('telemetry').set({
+                        lat: latAtual,
+                        lng: lngAtual,
+                        heading: headingAtual,
+                        espReturn: dadosEsp
+                    });
+                } catch (err) {
+                    console.log("App MIT Bridge fechado ou inicializando...");
+                }
+            }
+        });
+
+        function criarPeerConnection() {
+            peerConnection = new RTCPeerConnection({
+                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' }],
+                iceCandidatePoolSize: 10
+            });
+            
             localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
-            // Monitora o estado da comunicação em tempo real
             peerConnection.onconnectionstatechange = () => {
-                console.log("Estado da conexão mudou para:", peerConnection.connectionState);
-                
                 if (peerConnection.connectionState === 'connected') {
-                    statusDiv.className = "connected";
-                    statusDiv.innerText = "Conectado ao Observador!";
-                    // Sucesso! Cancela qualquer ordem de recarregamento pendente
+                    statusDiv.className = "connected"; statusDiv.innerText = "Conectado ao Observador!";
                     clearTimeout(watchDogTimer);
-                } 
-                else if (peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'failed') {
-                    statusDiv.className = "disconnected";
-                    statusDiv.innerText = "Sinal fraco ou queda de rede! Reiniciando em 5s...";
-                    // Força o reload da página após 5 segundos de queda contínua
+                } else if (peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'failed') {
+                    statusDiv.className = "disconnected"; statusDiv.innerText = "Reiniciando em 5s...";
                     programarRecarregamento(5000);
                 }
             };
 
-            // Coleta caminhos de rede (ICE Candidates) e envia ao Firebase para o PC ler
-            peerConnection.onicecandidate = event => {
-                if (event.candidate) {
-                    roomRef.child('callerCandidates').push(event.candidate.toJSON());
-                }
-            };
-
-            // Gera o sinal inicial de áudio e vídeo
+            peerConnection.onicecandidate = event => { if (event.candidate) roomRef.child('callerCandidates').push(event.candidate.toJSON()); };
             criarOferta();
         }
 
-        // 3. Cria a proposta SDP e monitora as respostas do banco de dados
         async function criarOferta() {
-            const offerDescription = await peerConnection.createOffer();
-            await peerConnection.setLocalDescription(offerDescription);
-
-            // Envia a oferta de mídia para a "sala" no Realtime Database
-            await roomRef.child('offer').set({
-                sdp: offerDescription.sdp,
-                type: offerDescription.type,
-                status: "active"
-            });
-
-            // GATILHO INICIAL DO WATCHDOG: 
-            // Se o app abrir e ninguém se conectar em até 15 segundos, recarrega para limpar o canal.
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            await roomRef.child('offer').set({ sdp: offer.sdp, type: offer.type, status: "active" });
             programarRecarregamento(15000);
 
-            // Fica ouvindo quando o PC (Observador) vai devolver a resposta (Answer)
             roomRef.child('answer').on('value', snapshot => {
                 const answer = snapshot.val();
                 if (peerConnection.signalingState !== 'stable' && answer) {
@@ -176,28 +133,19 @@
                 }
             });
 
-            // Fica ouvindo os caminhos de rede que o PC gerar de volta
             roomRef.child('calleeCandidates').on('child_added', snapshot => {
                 const candidate = new RTCIceCandidate(snapshot.val());
                 peerConnection.addIceCandidate(candidate).catch(e => console.error(e));
             });
         }
 
-        // 4. Lógica do Cão de Guarda (Watchdog) para Reset Forçado via Reload
-        function programarRecarregamento(tempoLimite) {
-            // Cancela cronômetros anteriores para evitar conflitos de execução
-            clearTimeout(watchDogTimer); 
-            
+        function programarRecarregamento(tempo) {
+            clearTimeout(watchDogTimer);
             watchDogTimer = setTimeout(() => {
-                // Só executa se a conexão não estiver ativamente em "connected"
-                if (peerConnection && peerConnection.connectionState !== 'connected') {
-                    console.log("Watchdog acionado. Recarregando a página por segurança...");
-                    window.location.reload();
-                }
-            }, tempoLimite);
+                if (peerConnection && peerConnection.connectionState !== 'connected') window.location.reload();
+            }, tempo);
         }
 
-        // Executa a inicialização assim que a página terminar de carregar no navegador
         window.onload = iniciarRobo;
     </script>
 </body>
