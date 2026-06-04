@@ -3,27 +3,99 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Painel do Observador (RTDB)</title>
+    <title>Painel do Observador (RTDB + Comando)</title>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+    
     <style>
-        body { font-family: Arial, sans-serif; text-align: center; background: #111; color: #fff; margin: 0; padding: 10px; }
-        .container { max-width: 600px; margin: auto; }
+        body { font-family: Arial, sans-serif; background: #111; color: #fff; margin: 0; padding: 15px; }
+        .grid-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; max-width: 1200px; margin: auto; }
+        @media(max-width: 768px) { .grid-layout { grid-template-columns: 1fr; } }
+        
+        .panel { background: #1e1e1e; padding: 15px; border-radius: 8px; border: 1px solid #333; text-align: center; }
         video { width: 100%; background: #000; border-radius: 8px; border: 2px solid #444; }
+        
         #status { font-weight: bold; margin: 10px 0; padding: 8px; border-radius: 5px; }
         .connected { background: #2e7d32; }
         .disconnected { background: #c62828; }
         .connecting { background: #ef6c00; }
-        button { background: #0288d1; color: white; border: none; padding: 12px 24px; font-size: 16px; border-radius: 5px; cursor: pointer; margin-top: 10px; width: 100%; }
+        
+        button.action-btn { background: #0288d1; color: white; border: none; padding: 12px; font-size: 16px; border-radius: 5px; cursor: pointer; width: 100%; }
+        
+        /* Layout Cooperativo da Tração */
+        .joystick-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; max-width: 260px; margin: 15px auto; }
+        .btn-dir { background: #333; color: white; border: 2px solid #555; padding: 22px; font-size: 20px; border-radius: 8px; cursor: pointer; user-select: none; -webkit-user-select: none; }
+        .btn-dir:active { background: #0288d1; border-color: #03a9f4; }
+        
+        /* Controles de Sliders */
+        .control-group { margin: 15px 0; text-align: left; }
+        .control-group label { display: block; margin-bottom: 5px; font-size: 14px; color: #aaa; }
+        .slider { width: 100%; height: 10px; background: #444; border-radius: 5px; outline: none; }
+        
+        /* Iframe do Mapa Dinâmico (OpenStreetMap alternativo sem necessidade de chave de API paga) */
+        #map-frame { width: 100%; height: 220px; border-radius: 6px; border: 1px solid #444; background: #222; }
+        
+        /* Bússola Visual */
+        .telemetry-container { display: flex; align-items: center; justify-content: space-around; margin-top: 15px; }
+        .compass { width: 80px; height: 80px; border: 3px solid #0288d1; border-radius: 50%; position: relative; background: #222; }
+        .compass-needle { width: 0; height: 0; border-left: 7px solid transparent; border-right: 7px solid transparent; border-bottom: 32px solid #ff3d00; position: absolute; top: 8px; left: 33px; transform-origin: 7px 32px; transition: transform 0.1s linear; }
+        .compass-text { position: absolute; font-size: 10px; font-weight: bold; width: 100%; text-align: center; }
     </style>
 </head>
 <body>
 
-    <div class="container">
-        <h2>👁️ Visão do Robô (Observador)</h2>
-        <video id="remoteVideo" autoplay playsinline></video>
-        <div id="status" class="disconnected">Aguardando Robô entrar online...</div>
-        <button id="btnConectar" onclick="conectarAoRobo()">Conectar / Atualizar Visão</button>
+    <div class="grid-layout">
+        <div class="panel">
+            <h2>👁️ Visão e Tração do Robô</h2>
+            <video id="remoteVideo" autoplay playsinline></video>
+            <div id="status" class="disconnected">Aguardando Robô entrar online...</div>
+            <button class="action-btn" onclick="conectarAoRobo()">Conectar / Atualizar Visão</button>
+            
+            <h3 style="margin-top:20px;">Direção (Mantenha Pressionado)</h3>
+            <div class="joystick-grid">
+                <div></div><button class="btn-dir" id="btnF">▲</button><div></div>
+                <button class="btn-dir" id="btnE">◀</button><button class="btn-dir" style="background:#111;color:#444" disabled>■</button><button class="btn-dir" id="btnD">▶</button>
+                <div></div><button class="btn-dir" id="btnT">▼</button><div></div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h2>🦾 Articulações do Braço</h2>
+            <div class="control-group">
+                <label>Yaw da Base: <span id="valY">50</span>%</label>
+                <input type="range" class="slider" id="sldY" min="0" max="100" value="50" oninput="enviarComandoBraco('Y', this.value)">
+            </div>
+            <div class="control-group">
+                <label>Cotovelo: <span id="valC">50</span>%</label>
+                <input type="range" class="slider" id="sldC" min="0" max="100" value="50" oninput="enviarComandoBraco('C', this.value)">
+            </div>
+            <div class="control-group">
+                <label>Punho: <span id="valP">50</span>%</label>
+                <input type="range" class="slider" id="sldP" min="0" max="100" value="50" oninput="enviarComandoBraco('P', this.value)">
+            </div>
+            <div class="control-group">
+                <label>Garra: <span id="valG">0</span>%</label>
+                <input type="range" class="slider" id="sldG" min="0" max="100" value="0" oninput="enviarComandoBraco('G', this.value)">
+            </div>
+
+            <hr style="border: 1px solid #333; margin: 15px 0;">
+            
+            <h2>📍 Telemetria em Tempo Real</h2>
+            <iframe id="map-frame" src=""></iframe>
+            
+            <div class="telemetry-container">
+                <div style="text-align: left; font-size: 13px; color: #ccc;">
+                    <p>Latitude: <span id="lblLat">-</span></p>
+                    <p>Longitude: <span id="lblLng">-</span></p>
+                    <p>Dados ESP32: <span id="lblEsp" style="color:#0288d1">-</span></p>
+                </div>
+                <div class="compass">
+                    <div class="compass-text" style="top:2px;">N</div>
+                    <div class="compass-needle" id="agulha"></div>
+                    <div class="compass-text" style="bottom:2px;">S</div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -41,25 +113,57 @@
         const db = firebase.database();
         const roomRef = db.ref('robot_stream');
 
-        const rtcConfig = {
-            iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                {
-                    urls: 'turn:openrelay.metered.ca:443',
-                    username: 'openrelayproject',
-                    credential: 'openrelayproject'
-                }
-            ],
-            iceCandidatePoolSize: 10,
-        };
-
         let peerConnection = null;
         const statusDiv = document.getElementById('status');
+        let comandoAtivo = 'S';
+        let ultimaLat = 0, ultimaLng = 0;
 
+        // Escuta a telemetria do robô
+        roomRef.child('telemetry').on('value', snapshot => {
+            const data = snapshot.val();
+            if (data) {
+                if (data.lat && data.lng && (data.lat !== ultimaLat || data.lng !== ultimaLng)) {
+                    ultimaLat = data.lat; ultimaLng = data.lng;
+                    document.getElementById('lblLat').innerText = data.lat.toFixed(6);
+                    document.getElementById('lblLng').innerText = data.lng.toFixed(6);
+                    // Atualiza o mapa OpenStreetMap embarcado dinamicamente
+                    document.getElementById('map-frame').src = `https://maps.google.com/maps?q=${data.lat},${data.lng}&z=17&output=embed`;
+                }
+                if (data.heading !== undefined) {
+                    document.getElementById('agulha').style.transform = `rotate(${data.heading}deg)`;
+                }
+                if (data.espReturn) {
+                    document.getElementById('lblEsp').innerText = data.espReturn;
+                }
+            }
+        });
+
+        function enviarComandoBraco(servo, valor) {
+            document.getElementById('val' + servo).innerText = valor;
+            roomRef.child('controls').set({ cmd: `B:${servo}${valor}` });
+        }
+
+        function setupBotao(id, cmd) {
+            const el = document.getElementById(id);
+            const inverteOn = (e) => { e.preventDefault(); comandoAtivo = cmd; };
+            const inverteOff = (e) => { e.preventDefault(); comandoAtivo = 'S'; };
+            el.addEventListener('mousedown', inverteOn); el.addEventListener('mouseup', inverteOff);
+            el.addEventListener('touchstart', inverteOn); el.addEventListener('touchend', inverteOff);
+        }
+        setupBotao('btnF', 'F'); setupBotao('btnT', 'T'); setupBotao('btnE', 'E'); setupBotao('btnD', 'D');
+
+        // Loop contínuo de envio de pulso para o Watchdog do ESP32
+        setInterval(() => {
+            roomRef.child('controls').update({ cmd: comandoAtivo });
+        }, 150);
+
+        // Sistema WebRTC Original mantido intacto
         function conectarAoRobo() {
             if (peerConnection) peerConnection.close();
-
-            peerConnection = new RTCPeerConnection(rtcConfig);
+            peerConnection = new RTCPeerConnection({
+                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' }],
+                iceCandidatePoolSize: 10
+            });
             statusDiv.className = "connecting";
             statusDiv.innerText = "Conectando e negociando canais...";
 
@@ -67,46 +171,30 @@
                 const remoteVideo = document.getElementById('remoteVideo');
                 if (remoteVideo.srcObject !== event.streams[0]) {
                     remoteVideo.srcObject = event.streams[0];
-                    statusDiv.className = "connected";
-                    statusDiv.innerText = "Transmissão Ao Vivo!";
+                    statusDiv.className = "connected"; statusDiv.innerText = "Transmissão Ao Vivo!";
                 }
             };
 
             peerConnection.onconnectionstatechange = () => {
                 if (peerConnection.connectionState === 'connected') {
-                    statusDiv.className = "connected";
-                    statusDiv.innerText = "Transmissão Ao Vivo!";
+                    statusDiv.className = "connected"; statusDiv.innerText = "Transmissão Ao Vivo!";
                 } else if (peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'failed') {
-                    statusDiv.className = "disconnected";
-                    statusDiv.innerText = "Conexão perdida com o robô.";
+                    statusDiv.className = "disconnected"; statusDiv.innerText = "Conexão perdida.";
                 }
             };
 
-            peerConnection.onicecandidate = event => {
-                if (event.candidate) {
-                    roomRef.child('calleeCandidates').push(event.candidate.toJSON());
-                }
-            };
+            peerConnection.onicecandidate = event => { if (event.candidate) roomRef.child('calleeCandidates').push(event.candidate.toJSON()); };
 
-            // Escuta a oferta do robô
             roomRef.child('offer').on('value', async snapshot => {
                 const offer = snapshot.val();
                 if (offer && (peerConnection.signalingState !== 'have-remote-offer' || offer.status === "reconnecting")) {
-                    statusDiv.className = "connecting";
-                    statusDiv.innerText = "Sincronizando sinal...";
-                    
                     await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-                    const answerDescription = await peerConnection.createAnswer();
-                    await peerConnection.setLocalDescription(answerDescription);
-
-                    await roomRef.child('answer').set({
-                        type: answerDescription.type,
-                        sdp: answerDescription.sdp,
-                    });
+                    const answer = await peerConnection.createAnswer();
+                    await peerConnection.setLocalDescription(answer);
+                    await roomRef.child('answer').set({ type: answer.type, sdp: answer.sdp });
                 }
             });
 
-            // Escuta candidatos enviados pelo robô
             roomRef.child('callerCandidates').on('child_added', snapshot => {
                 const candidate = new RTCIceCandidate(snapshot.val());
                 peerConnection.addIceCandidate(candidate).catch(e => console.error(e));
