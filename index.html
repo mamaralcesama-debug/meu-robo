@@ -3,13 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <title>Rover - Lado do Robô</title>
+    <style>
+        body { background: #121212; color: #fff; font-family: sans-serif; text-align: center; padding: 20px; margin: 0; }
+        h2 { margin-top: 10px; font-size: 1.4rem; }
+        .status-box { padding: 12px; background: #ff9500; color: #000; font-weight: bold; border-radius: 8px; margin-bottom: 15px; }
+        .btn-bluetooth { background: #007aff; color: white; border: none; padding: 12px 24px; font-size: 1rem; font-weight: bold; border-radius: 8px; cursor: pointer; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.2); width: 80%; max-width: 400px; }
+        .btn-bluetooth:active { background: #0051a8; }
+        video { width: 80%; max-width: 400px; border-radius: 8px; transform: scaleX(-1); background: #000; box-shadow: 0 4px 10px rgba(0,0,0,0.4); }
+    </style>
 </head>
-<body style="background: #121212; color: #fff; font-family: sans-serif; text-align: center; padding: 20px;">
+<body>
 
     <h2>Rover - Servidor de Mídia e Comandos</h2>
-    <div id="status" style="padding: 10px; background: #ff9500; color: #000; font-weight: bold; border-radius: 5px;">INICIALIZANDO...</div>
     
-    <video id="localVideo" autoplay playsinline muted style="width: 80%; max-width: 400px; margin-top: 20px; border-radius: 8px; transform: scaleX(-1);"></video>
+    <button class="btn-bluetooth" onclick="parearBluetooth()">🔗 PAREAR BLUETOOTH (ESP32)</button>
+
+    <div id="status" class="status-box">INICIALIZANDO...</div>
+    
+    <video id="localVideo" autoplay playsinline muted></video>
 
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
@@ -27,6 +38,19 @@
         let peerConnection, localStream, dataChannel;
         let sessoesVistas = new Set();
 
+        // Função Nativa do Bluetooth Restaurada
+        function parearBluetooth() {
+            if (window.AndroidInterface && window.AndroidInterface.abrirConfiguracaoBluetooth) {
+                console.log("Chamando interface nativa para pareamento Bluetooth...");
+                window.AndroidInterface.abrirConfiguracaoBluetooth();
+            } else if (window.AndroidInterface && window.AndroidInterface.onClickBluetooth) {
+                // Fallback caso o nome da sua função antiga no Java/Kotlin fosse diferente
+                window.AndroidInterface.onClickBluetooth();
+            } else {
+                alert("Interface Android não detectada. Execute este arquivo dentro do aplicativo do Rover.");
+            }
+        }
+
         async function iniciarMidia() {
             try {
                 localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
@@ -40,20 +64,18 @@
         function configurarEscutaGlobal() {
             document.getElementById('status').innerText = "VIGIANDO CHAMADAS DO OPERADOR...";
             document.getElementById('status').style.background = "#ff9500";
+            document.getElementById('status').style.color = "#000";
 
-            // Escuta principal: O operador cria/atualiza a oferta
             sinalizacaoRef.child('operador/offer').on('value', async (snapshot) => {
                 const offerData = snapshot.val();
                 if (!offerData) return;
 
-                // Identificador único da sessão para ignorar pacotes repetidos ou antigos
                 const idSessao = offerData.sdp; 
                 if (sessoesVistas.has(idSessao)) return; 
                 sessoesVistas.add(idSessao);
 
                 console.log("Nova chamada detectada! Reiniciando canal RTC...");
                 
-                // Desconecta qualquer rastro anterior
                 if (peerConnection) {
                     peerConnection.close();
                     sinalizacaoRef.child('operador/iceCandidates').off();
@@ -71,14 +93,17 @@
                     dataChannel.onopen = () => {
                         document.getElementById('status').innerText = "CONECTADO E TRANSMITINDO!";
                         document.getElementById('status').style.background = "#34c759";
+                        document.getElementById('status').style.color = "#fff";
                     };
                     dataChannel.onmessage = (msg) => {
-                        if(window.AndroidInterface) window.AndroidInterface.enviarAoEsp(msg.data);
-                        else console.log("Cmd:", msg.data);
+                        if(window.AndroidInterface && window.AndroidInterface.enviarAoEsp) {
+                            window.AndroidInterface.enviarAoEsp(msg.data);
+                        } else {
+                            console.log("Cmd recebido:", msg.data);
+                        }
                     };
                 };
 
-                // Configura os candidatos ICE dinamicamente para esta sessão
                 sinalizacaoRef.child('operador/iceCandidates').off();
                 sinalizacaoRef.child('operador/iceCandidates').on('child_added', s => {
                     if (s.val() && peerConnection && peerConnection.remoteDescription) {
@@ -90,7 +115,6 @@
                 const answer = await peerConnection.createAnswer();
                 await peerConnection.setLocalDescription(answer);
                 
-                // Envia a resposta limpa de volta
                 await sinalizacaoRef.child('robo/answer').set({ type: answer.type, sdp: answer.sdp });
                 document.getElementById('status').innerText = "RESPONDIDO! AGUARDANDO TÚNEL ICE...";
             });
