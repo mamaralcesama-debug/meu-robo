@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robô - Transmissor</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; background: #222; color: #fff; margin: 0; padding: 20px; }
+        video { width: 100%; max-width: 400px; background: #000; border-radius: 8px; transform: scaleX(1); }
+        #status { font-weight: bold; margin: 15px 0; padding: 10px; border-radius: 5px; }
+        .connected { background: #2e7d32; }
+        .disconnected { background: #c62828; }
+        .connecting { background: #ef6c00; }
+    </style>
+</head>
+<body>
+
+    <h2>🤖 Robô (Transmissor)</h2>
+    <video id="localVideo" autoplay playsinline muted></video>
+    <div id="status" class="disconnected">Desconectado</div>
+
+    <script>
+        // ======= CONFIGURAÇÃO DO FIREBASE =======
+        // Cole aqui as credenciais do seu console do Firebase
+        const firebaseConfig = {
+            apiKey: "SEU_API_KEY",
+            authDomain: "SEU_AUTH_DOMAIN",
+            projectId: "SEU_PROJECT_ID",
+            storageBucket: "SEU_STORAGE_BUCKET",
+            messagingSenderId: "SEU_MESSAGING_SENDER_ID",
+            appId: "SEU_APP_ID"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        const docRef = db.collection('calls').doc('robot_stream');
+
+        // ======= CONFIGURAÇÃO WEBRTC (STUN / TURN) =======
+        const rtcConfig = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' }, // Servidor STUN gratuito do Google
+                {
+                    // Altere para o seu servidor TURN gratuito (Ex: Metered.ca ou ExpressTURN) para funcionar no 4G
+                    urls: 'turn:openrelay.metered.ca:443', 
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                }
+            ],
+            iceCandidatePoolSize: 10,
+        };
+
+        let peerConnection = null;
+        let localStream = null;
+        const statusDiv = document.getElementById('status');
+
+        async function iniciarRobo() {
+            // 1. Captura a câmera traseira em resolução otimizada para 4G
+            localStream = await navigator.mediaDevices.getUserMedia({
+                video: { 
+                    facingMode: "environment", // Força a câmera traseira
+                    width: { ideal: 640 }, 
+                    height: { ideal: 480 },
+                    frameRate: { ideal: 20 } 
+                },
+                audio: false
+            });
+            document.getElementById('localVideo').srcObject = localStream;
+
+            // Limpa dados de conexões anteriores no Firebase antes de começar
+            await docRef.delete();
+            const candidates = await docRef.collection('calleeCandidates').get();
+            candidates.forEach(async doc => await doc.ref.delete());
+            const callerCandidates = await docRef.collection('callerCandidates').get();
+            callerCandidates.forEach(async doc => await doc.ref.delete());
+
+            criarPeerConnection();
+        }
+
+        function criarPeerConnection() {
+            peerConnection = new RTCPeerConnection(rtcConfig);
+            statusDiv.className = "connecting";
+            statusDiv.innerText = "Criando conexão...";
+
+            // Adiciona o vídeo da câmera ao canal WebRTC
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+            // Monitora o estado da conexão para reconexão automática
+            peerConnection.onconnectionstatechange = () => {
+                console.log("Estado da Conexão:", peerConnection.connectionState);
+                if (peerConnection.connectionState === 'connected') {
+                    statusDiv.className = "connected";
+                    statusDiv.innerText = "Conectado ao Observador!";
+                } else if (peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'failed') {
+                    statusDiv.className = "disconnected";
+                    statusDiv.innerText = "Sinal fraco/Caiu. Reiniciando...";
+                    forçarReconexao();
+                }
+            };
+
+            // Envia os caminhos de rede (ICE Candidates) gerados pelo celular para o Firebase
+            peerConnection.onicecandidate = event => {
+                if (event.candidate) {
+                    docRef.collection('callerCandidates').add(event.candidate.toJSON());
+                }
+            };
+
+            // Criar a oferta inicial de conexão
+            criarOferta();
+        }
+
+        async function criarOferta(isRestart = false) {
+            const offerOptions = isRestart ? { iceRestart: true } : {};
+            const offerDescription = await peerConnection.createOffer(offerOptions);
+            await peerConnection.setLocalDescription(offerDescription);
+
+            const offer = {
+                sdp: offerDescription.sdp,
+                type: offerDescription.type,
+                status: isRestart ? "reconnecting" : "active"
+            };
+
+            await docRef.set({ offer });
+
+            // Ouvir a resposta (Answer) que o PC/Observador vai gravar no Firebase
+            docRef.onSnapshot(snapshot => {
+                const data = snapshot.data();
+                if (peerConnection.signalingState !== 'stable' && data?.answer) {
+                    const answerDescription = new RTCSessionDescription(data.answer);
+                    peerConnection.setRemoteDescription(answerDescription);
+                }
+            });
+
+            // Ouvir os ICE Candidates que o PC enviar de volta
+            docRef.collection('calleeCandidates').onSnapshot(snapshot => {
+                snapshot.docChanges().forEach(change => {
+                    if (change.type === 'added') {
+                        const candidate = new RTCIceCandidate(change.doc.data());
+                        peerConnection.addIceCandidate(candidate).catch(e => console.error(e));
+                    }
+                });
+            });
+        }
+
+        async function forçarReconexao() {
+            if (peerConnection) {
+                console.log("Executando ICE Restart...");
+                // Limpa os candidatos antigos do Firebase para não confundir a nova conexão
+                const calleeCandidates = await docRef.collection('calleeCandidates').get();
+                calleeCandidates.forEach(async doc => await doc.ref.delete());
+                
+                // Dispara a nova oferta com a flag iceRestart ativa
+                criarOferta(true);
+            }
+        }
+
+        // Inicia o app assim que carregar
+        window.onload = iniciarRobo;
+    </script>
+</body>
+</html>
