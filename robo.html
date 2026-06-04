@@ -1,68 +1,172 @@
-// ... (Mantenha o início do código igual: Firebase, rtcConfig, iniciarRobo) ...
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robô - Transmissor (Autoreconexão)</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            text-align: center; 
+            background: #222; 
+            color: #fff; 
+            margin: 0; 
+            padding: 20px; 
+        }
+        h2 { margin-bottom: 5px; color: #0288d1; }
+        p { color: #aaa; font-size: 14px; margin-top: 0; }
+        video { 
+            width: 100%; 
+            max-width: 400px; 
+            background: #000; 
+            border-radius: 8px; 
+            border: 2px solid #444;
+        }
+        #status { 
+            font-weight: bold; 
+            margin: 15px auto; 
+            padding: 12px; 
+            border-radius: 5px; 
+            max-width: 400px;
+            box-sizing: border-box;
+        }
+        .connected { background: #2e7d32; }
+        .disconnected { background: #c62828; }
+        .connecting { background: #ef6c00; }
+    </style>
+</head>
+<body>
+
+    <h2>🤖 Robô (Transmissor)</h2>
+    <p>Conexão via Realtime Database</p>
+    
+    <video id="localVideo" autoplay playsinline muted></video>
+    <div id="status" class="disconnected">Iniciando sistema...</div>
+
+    <script>
+        // ======= SUAS CREDENCIAIS DO FIREBASE =======
+        const firebaseConfig = {
+            apiKey: "AIzaSyAPJOs-lOFuA0zqZrJKmdrWrSr4Vf2dNx0",
+            authDomain: "robo-webrtc-7b32b.firebaseapp.com",
+            databaseURL: "https://robo-webrtc-7b32b-default-rtdb.firebaseio.com",
+            projectId: "robo-webrtc-7b32b",
+            storageBucket: "robo-webrtc-7b32b.firebasestorage.app",
+            messagingSenderId: "488205904754",
+            appId: "1:488205904754:web:52a95187cb2896da5d8beb",
+            measurementId: "G-N5F97EE30J"
+        };
+        
+        // Inicializa o Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+        const roomRef = db.ref('robot_stream');
+
+        // ======= CONFIGURAÇÃO WEBRTC (STUN / TURN) =======
+        const rtcConfig = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' }, // STUN Público do Google
+                {
+                    // Servidor TURN (Essencial para contornar o bloqueio de IP do 4G)
+                    urls: 'turn:openrelay.metered.ca:443', 
+                    username: 'openrelayproject',
+                    credential: 'openrelayproject'
+                }
+            ],
+            iceCandidatePoolSize: 10,
+        };
 
         let peerConnection = null;
         let localStream = null;
-        let watchDogTimer = null; // Guardará o temporizador de segurança
+        let watchDogTimer = null; // Timer responsável pelo reload automático
         const statusDiv = document.getElementById('status');
 
+        // 1. Inicializa a câmera do celular
         async function iniciarRobo() {
-            localStream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 20 } },
-                audio: false
-            });
-            document.getElementById('localVideo').srcObject = localStream;
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({
+                    video: { 
+                        facingMode: "environment", // Força o uso da câmera traseira do celular
+                        width: { ideal: 640 }, 
+                        height: { ideal: 480 }, 
+                        frameRate: { ideal: 20 } // Otimizado para não estourar a banda do 4G
+                    },
+                    audio: false
+                });
+                document.getElementById('localVideo').srcObject = localStream;
 
-            await roomRef.remove();
-            criarPeerConnection();
+                statusDiv.className = "connecting";
+                statusDiv.innerText = "Limpando conexões antigas...";
+
+                // Limpa registros residuais de conexões passadas no banco
+                await roomRef.remove();
+                
+                // Inicializa a infraestrutura de stream do WebRTC
+                criarPeerConnection();
+                
+            } catch (error) {
+                console.error("Erro ao acessar a câmera:", error);
+                statusDiv.className = "disconnected";
+                statusDiv.innerText = "Erro: Permissão de câmera negada ou indisponível.";
+            }
         }
 
+        // 2. Configura a instância do WebRTC e seus ouvintes
         function criarPeerConnection() {
             peerConnection = new RTCPeerConnection(rtcConfig);
             statusDiv.className = "connecting";
-            statusDiv.innerText = "Criando conexão...";
+            statusDiv.innerText = "Aguardando conexão do observador...";
 
+            // Vincula o feed da câmera ao canal de transmissão
             localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
-            // MONITOR DE ESTADO DA CONEXÃO REFORMULADO
+            // Monitora o estado da comunicação em tempo real
             peerConnection.onconnectionstatechange = () => {
-                console.log("Estado atual:", peerConnection.connectionState);
+                console.log("Estado da conexão mudou para:", peerConnection.connectionState);
                 
                 if (peerConnection.connectionState === 'connected') {
                     statusDiv.className = "connected";
                     statusDiv.innerText = "Conectado ao Observador!";
-                    // Parar o cronômetro de recarregamento, pois já conectou com sucesso!
+                    // Sucesso! Cancela qualquer ordem de recarregamento pendente
                     clearTimeout(watchDogTimer);
                 } 
                 else if (peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'failed') {
                     statusDiv.className = "disconnected";
-                    statusDiv.innerText = "Queda de sinal! Reiniciando em 5 segundos...";
-                    programarRecarregamento(5000); // Força o reload em 5 segundos
+                    statusDiv.innerText = "Sinal fraco ou queda de rede! Reiniciando em 5s...";
+                    // Força o reload da página após 5 segundos de queda contínua
+                    programarRecarregamento(5000);
                 }
             };
 
+            // Coleta caminhos de rede (ICE Candidates) e envia ao Firebase para o PC ler
             peerConnection.onicecandidate = event => {
                 if (event.candidate) {
                     roomRef.child('callerCandidates').push(event.candidate.toJSON());
                 }
             };
 
+            // Gera o sinal inicial de vídeo
             criarOferta();
         }
 
+        // 3. Cria a proposta SDP e monitora as respostas do banco de dados
         async function criarOferta() {
             const offerDescription = await peerConnection.createOffer();
             await peerConnection.setLocalDescription(offerDescription);
 
+            // Envia a oferta de vídeo para a "sala" no Realtime Database
             await roomRef.child('offer').set({
                 sdp: offerDescription.sdp,
                 type: offerDescription.type,
                 status: "active"
             });
 
-            // Dispara o monitoramento: Se o PC não conectar em 12 segundos após a página abrir, 
-            // atualiza a página para tentar de novo (loop de 5 segundos após a primeira tentativa)
-            programarRecarregamento(12000);
+            // GATILHO INICIAL DO WATCHDOG: 
+            // Se o app abrir e ninguém se conectar em até 15 segundos, recarrega para limpar o canal.
+            programarRecarregamento(15000);
 
+            // Fica ouvindo quando o PC (Observador) vai devolver a resposta (Answer)
             roomRef.child('answer').on('value', snapshot => {
                 const answer = snapshot.val();
                 if (peerConnection.signalingState !== 'stable' && answer) {
@@ -70,24 +174,29 @@
                 }
             });
 
+            // Fica ouvindo os caminhos de rede que o PC gerar de volta
             roomRef.child('calleeCandidates').on('child_added', snapshot => {
                 const candidate = new RTCIceCandidate(snapshot.val());
                 peerConnection.addIceCandidate(candidate).catch(e => console.error(e));
             });
         }
 
-        // FUNÇÃO DO WATCHDOG (CÃO DE GUARDA)
-        function programarRecarregamento(tempo) {
-            // Garante que não existem múltiplos timers rodando juntos
+        // 4. Lógica do Cão de Guarda (Watchdog) para Reset Forçado via Reload
+        function programarRecarregamento(tempoLimite) {
+            // Cancela cronômetros anteriores para evitar conflitos de execução
             clearTimeout(watchDogTimer); 
             
             watchDogTimer = setTimeout(() => {
-                // Só recarrega se NÃO estiver conectado
+                // Só executa se a conexão não estiver ativamente em "connected"
                 if (peerConnection && peerConnection.connectionState !== 'connected') {
-                    console.log("Watchdog ativado: Recarregando a página para restaurar o 4G...");
+                    console.log("Watchdog acionado. Recarregando a página por segurança...");
                     window.location.reload();
                 }
-            }, tempo);
+            }, tempoLimite);
         }
 
+        // Executa a inicialização assim que a página terminar de carregar no navegador
         window.onload = iniciarRobo;
+    </script>
+</body>
+</html>
