@@ -1,56 +1,8 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Robô - Transmissor (RTDB)</title>
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
-    <style>
-        body { font-family: Arial, sans-serif; text-align: center; background: #222; color: #fff; margin: 0; padding: 20px; }
-        video { width: 100%; max-width: 400px; background: #000; border-radius: 8px; }
-        #status { font-weight: bold; margin: 15px 0; padding: 10px; border-radius: 5px; }
-        .connected { background: #2e7d32; }
-        .disconnected { background: #c62828; }
-        .connecting { background: #ef6c00; }
-    </style>
-</head>
-<body>
-
-    <h2>🤖 Robô (Transmissor)</h2>
-    <video id="localVideo" autoplay playsinline muted></video>
-    <div id="status" class="disconnected">Desconectado</div>
-
-    <script>
-        // Suas credenciais exatas
-        const firebaseConfig = {
-            apiKey: "AIzaSyAPJOs-lOFuA0zqZrJKmdrWrSr4Vf2dNx0",
-            authDomain: "robo-webrtc-7b32b.firebaseapp.com",
-            databaseURL: "https://robo-webrtc-7b32b-default-rtdb.firebaseio.com",
-            projectId: "robo-webrtc-7b32b",
-            storageBucket: "robo-webrtc-7b32b.firebasestorage.app",
-            messagingSenderId: "488205904754",
-            appId: "1:488205904754:web:52a95187cb2896da5d8beb",
-            measurementId: "G-N5F97EE30J"
-        };
-        firebase.initializeApp(firebaseConfig);
-        const db = firebase.database();
-        const roomRef = db.ref('robot_stream');
-
-        const rtcConfig = {
-            iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                {
-                    urls: 'turn:openrelay.metered.ca:443', 
-                    username: 'openrelayproject',
-                    credential: 'openrelayproject'
-                }
-            ],
-            iceCandidatePoolSize: 10,
-        };
+// ... (Mantenha o início do código igual: Firebase, rtcConfig, iniciarRobo) ...
 
         let peerConnection = null;
         let localStream = null;
+        let watchDogTimer = null; // Guardará o temporizador de segurança
         const statusDiv = document.getElementById('status');
 
         async function iniciarRobo() {
@@ -60,7 +12,6 @@
             });
             document.getElementById('localVideo').srcObject = localStream;
 
-            // Limpa dados anteriores no Realtime Database
             await roomRef.remove();
             criarPeerConnection();
         }
@@ -72,14 +23,20 @@
 
             localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
+            // MONITOR DE ESTADO DA CONEXÃO REFORMULADO
             peerConnection.onconnectionstatechange = () => {
+                console.log("Estado atual:", peerConnection.connectionState);
+                
                 if (peerConnection.connectionState === 'connected') {
                     statusDiv.className = "connected";
                     statusDiv.innerText = "Conectado ao Observador!";
-                } else if (peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'failed') {
+                    // Parar o cronômetro de recarregamento, pois já conectou com sucesso!
+                    clearTimeout(watchDogTimer);
+                } 
+                else if (peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'failed') {
                     statusDiv.className = "disconnected";
-                    statusDiv.innerText = "Sinal fraco/Caiu. Reiniciando...";
-                    forçarReconexao();
+                    statusDiv.innerText = "Queda de sinal! Reiniciando em 5 segundos...";
+                    programarRecarregamento(5000); // Força o reload em 5 segundos
                 }
             };
 
@@ -92,18 +49,20 @@
             criarOferta();
         }
 
-        async function criarOferta(isRestart = false) {
-            const offerOptions = isRestart ? { iceRestart: true } : {};
-            const offerDescription = await peerConnection.createOffer(offerOptions);
+        async function criarOferta() {
+            const offerDescription = await peerConnection.createOffer();
             await peerConnection.setLocalDescription(offerDescription);
 
             await roomRef.child('offer').set({
                 sdp: offerDescription.sdp,
                 type: offerDescription.type,
-                status: isRestart ? "reconnecting" : "active"
+                status: "active"
             });
 
-            // Ouvir resposta do Observador
+            // Dispara o monitoramento: Se o PC não conectar em 12 segundos após a página abrir, 
+            // atualiza a página para tentar de novo (loop de 5 segundos após a primeira tentativa)
+            programarRecarregamento(12000);
+
             roomRef.child('answer').on('value', snapshot => {
                 const answer = snapshot.val();
                 if (peerConnection.signalingState !== 'stable' && answer) {
@@ -111,21 +70,24 @@
                 }
             });
 
-            // Ouvir candidatos do Observador
             roomRef.child('calleeCandidates').on('child_added', snapshot => {
                 const candidate = new RTCIceCandidate(snapshot.val());
                 peerConnection.addIceCandidate(candidate).catch(e => console.error(e));
             });
         }
 
-        async function forçarReconexao() {
-            if (peerConnection) {
-                await roomRef.child('calleeCandidates').remove();
-                criarOferta(true);
-            }
+        // FUNÇÃO DO WATCHDOG (CÃO DE GUARDA)
+        function programarRecarregamento(tempo) {
+            // Garante que não existem múltiplos timers rodando juntos
+            clearTimeout(watchDogTimer); 
+            
+            watchDogTimer = setTimeout(() => {
+                // Só recarrega se NÃO estiver conectado
+                if (peerConnection && peerConnection.connectionState !== 'connected') {
+                    console.log("Watchdog ativado: Recarregando a página para restaurar o 4G...");
+                    window.location.reload();
+                }
+            }, tempo);
         }
 
         window.onload = iniciarRobo;
-    </script>
-</body>
-</html>
