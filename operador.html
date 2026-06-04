@@ -29,7 +29,7 @@
         
         .control-pad { display: grid; grid-template-areas: ". up ." "left down right"; gap: 12px; }
         .btn-control { width: 65px; height: 65px; background: var(--primary); color: white; border: none; border-radius: 50%; font-size: 1.5rem; cursor: pointer; user-select: none; display: flex; align-items: center; justify-content: center; }
-        button#btnConectar { background: #34c759; color: white; border: none; padding: 12px 35px; font-size: 1rem; border-radius: 8px; font-weight: bold; }
+        .status-header { background: #1e1e1e; padding: 10px 30px; font-weight: bold; border-radius: 8px; border: 1px solid #333; color: #ff9500; margin-bottom: 10px; }
     </style>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
@@ -38,7 +38,7 @@
 <body>
 
     <h1>Painel de Inspeção - Configuração Ré Única</h1>
-    <button id="btnConectar" onclick="iniciarFluxoSinalizacao()">CONECTAR AO ROBÔ</button>
+    <div id="statusPainel" class="status-header">INICIALIZANDO FLUXO...</div>
 
     <div class="dashboard">
         <div class="card">
@@ -103,6 +103,9 @@
         window.onload = () => {
             map = L.map('mapa').setView([-14.2350, -51.9253], 4);
             L.tileLayer('https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}', { maxZoom: 20, subdomains: ['mt0', 'mt1', 'mt2', 'mt3'] }).addTo(map);
+            
+            // O operador publica a oferta imediatamente ao carregar a página
+            publicarOfertaEstatica();
         };
 
         function atualizarLabel(id, valor) { document.getElementById('val' + id).innerText = valor + "%"; }
@@ -112,49 +115,59 @@
             else { roboMarker.setLatLng([lat, lon]); }
         }
 
-        async function iniciarFluxoSinalizacao() {
-            document.getElementById("btnConectar").innerText = "Sincronizando...";
-            
-            // Fecha conexões antigas locais se o operador clicar de novo
-            if(peerConnection) { peerConnection.close(); peerConnection = null; }
+        async function publicarOfertaEstatica() {
+            document.getElementById("statusPainel").innerText = "PUBLICANDO CANAL DE SINALIZAÇÃO...";
+            document.getElementById("statusPainel").style.color = "#ff9500";
 
-            // Limpa o banco de dados completamente de maneira limpa
+            if(peerConnection) { peerConnection.close(); }
+
+            // Limpa o nó de sinalização do zero para iniciar a escuta limpa
             await sinalizacaoRef.remove();
 
-            // Pequeno delay para garantir que o robô detectou a limpeza e resetou do lado dele
-            setTimeout(async () => {
-                peerConnection = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-                
-                dataChannel = peerConnection.createDataChannel("comandos");
-                dataChannel.onmessage = receberTelemetriaE_OSD;
-                dataChannel.onopen = () => { document.getElementById("btnConectar").innerText = "SISTEMA ONLINE"; };
-                
-                peerConnection.ontrack = (e) => { document.getElementById('videoRemoto1').srcObject = e.streams[0]; };
-                
-                peerConnection.onicecandidate = (e) => { 
-                    if (e.candidate) sinalizacaoRef.child('operador/iceCandidates').push(e.candidate.toJSON()); 
-                };
+            peerConnection = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+            
+            dataChannel = peerConnection.createDataChannel("comandos");
+            dataChannel.onmessage = receberTelemetriaE_OSD;
+            dataChannel.onopen = () => { 
+                document.getElementById("statusPainel").innerText = "SISTEMA CONECTADO AO ROVER"; 
+                document.getElementById("statusPainel").style.color = "#34c759";
+            };
+            
+            peerConnection.ontrack = (e) => { document.getElementById('videoRemoto1').srcObject = e.streams[0]; };
+            
+            peerConnection.onicecandidate = (e) => { 
+                if (e.candidate) sinalizacaoRef.child('operador/iceCandidates').push(e.candidate.toJSON()); 
+            };
 
-                const offer = await peerConnection.createOffer({ offerToReceiveVideo: true });
-                await peerConnection.setLocalDescription(offer);
-                
-                // Envia a oferta inicial estruturada
-                await sinalizacaoRef.child('operador/offer').set({ type: offer.type, sdp: offer.sdp });
-                
-                // Escuta assíncrona da resposta do robô
-                sinalizacaoRef.child('robo/answer').on('value', async (s) => { 
-                    if (s.val() && !peerConnection.currentRemoteDescription) {
-                        await peerConnection.setRemoteDescription(new RTCSessionDescription(s.val()));
-                    }
-                });
-                
-                // Agrega candidatos ICE do robô de forma dinâmica
-                sinalizacaoRef.child('robo/iceCandidates').on('child_added', s => { 
-                    if (s.val() && peerConnection && peerConnection.remoteDescription) {
-                        peerConnection.addIceCandidate(new RTCIceCandidate(s.val())).catch(e => {});
-                    }
-                });
-            }, 400);
+            const offer = await peerConnection.createOffer({ offerToReceiveVideo: true });
+            await peerConnection.setLocalDescription(offer);
+            
+            // Grava a oferta permanente no banco
+            await sinalizacaoRef.child('operador/offer').set({ type: offer.type, sdp: offer.sdp });
+            document.getElementById("statusPainel").innerText = "AGUARDANDO CONEXÃO AUTOMÁTICA DO ROBÔ...";
+
+            // Escuta permanente por uma resposta (Answer) vinda do Robô
+            sinalizacaoRef.child('robo/answer').on('value', async (s) => { 
+                if (s.val() && !peerConnection.currentRemoteDescription) {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(s.val()));
+                    console.log("Answer recebida automaticamente.");
+                }
+            });
+            
+            // Coleta candidatos de gelo do robô de forma dinâmica
+            sinalizacaoRef.child('robo/iceCandidates').on('child_added', s => { 
+                if (s.val() && peerConnection && peerConnection.remoteDescription) {
+                    peerConnection.addIceCandidate(new RTCIceCandidate(s.val())).catch(e => {});
+                }
+            });
+
+            // Se o robô sumir ou desconectar, o operador percebe e se prepara para o re-handshake automático
+            peerConnection.oniceconnectionstatechange = () => {
+                if(peerConnection.iceConnectionState === "disconnected" || peerConnection.iceConnectionState === "failed") {
+                    document.getElementById("statusPainel").innerText = "ROBÔ CAIU. AGUARDANDO RETORNO AUTOMÁTICO...";
+                    document.getElementById("statusPainel").style.color = "#ff3b30";
+                }
+            };
         }
 
         function enviar(comando) { if (dataChannel && dataChannel.readyState === "open") dataChannel.send(comando); }
