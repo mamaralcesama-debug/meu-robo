@@ -2,27 +2,17 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Robô - Central HUB (1 Sensor)</title>
-    <style>
-        body { font-family: Arial, sans-serif; background: #111; color: #fff; text-align: center; padding: 20px; }
-        .btn-bt { background: #007aff; color: white; border: none; padding: 15px 20px; font-size: 16px; border-radius: 8px; font-weight: bold; width: 90%; max-width: 400px; }
-        .btn-bt.bt-connected { background: #34c759; }
-        .status-wrtc { display: inline-block; padding: 6px 12px; border-radius: 20px; font-size: 0.9rem; font-weight: bold; margin-top: 10px; background: #333; color: #aaa; }
-        .wrtc-on { background: #28cd41; color: #fff; }
-    </style>
+    <title>Rover - Lado do Robô</title>
+</head>
+<body style="background: #121212; color: #fff; font-family: sans-serif; text-align: center; padding: 20px;">
+
+    <h2>Rover - Servidor de Mídia e Comandos</h2>
+    <div id="status" style="padding: 10px; background: #ff9500; color: #000; font-weight: bold; border-radius: 5px;">AGUARDANDO SINALIZAÇÃO...</div>
+    
+    <video id="localVideo" autoplay playsinline muted style="width: 80%; max-width: 400px; margin-top: 20px; border-radius: 8px; transform: scaleX(-1);"></video>
+
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
-</head>
-<body>
-
-    <h1>Unidade Móvel (Foco Sensor Traseiro)</h1>
-    <button id="btnBluetooth" class="btn-bt" onclick="conectarBluetoothESP32()">CONECTAR HARDWARE (ESP32)</button>
-    <br>
-    <div id="wrtcLabel" class="status-wrtc">WebRTC: Ocioso</div>
-    <br><br>
-    <video id="videoLocal1" autoplay playsinline muted style="width:90%; max-width:400px; border:2px solid #555;"></video>
-
     <script>
         const firebaseConfig = {
             apiKey: "AIzaSyAPJOs-lOFuA0zqZrJKmdrWrSr4Vf2dNx0",
@@ -32,144 +22,84 @@
         };
         firebase.initializeApp(firebaseConfig);
         const database = firebase.database();
-        let sinalizacaoRef = database.ref('sinalizacao');
+        const sinalizacaoRef = database.ref('sinalizacao');
 
-        let localStream1 = null, peerConnection = null, dataChannel = null, intervaloTelemetria = null;
-        let celularLat = 0.0, celularLon = 0.0, celularDirecao = 0;
-        let distTras = "--"; 
+        let peerConnection, localStream, dataChannel;
 
-        let bluetoothCharacteristic = null;
-        const BLE_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"; 
-        const BLE_TX_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
-
-        window.onload = async () => {
-            if ('wakeLock' in navigator) {
-                try { await navigator.wakeLock.request('screen'); } catch(e){}
-            }
-            await iniciarCameraResiliente();
-            activarSensoresNativos();
-            
-            // Loop de conexão automática ativa (Tenta a cada 2 segundos se estiver offline)
-            setInterval(verificarETentarConexao, 2000);
-        };
-
-        async function iniciarCameraResiliente() {
+        async function iniciarMidia() {
             try {
-                const videoElement = document.getElementById('videoLocal1');
-                const dispositivos = await navigator.mediaDevices.enumerateDevices();
-                let idCameraUSB = null;
-                dispositivos.forEach(d => { 
-                    if (d.kind === 'videoinput' && (d.label.toLowerCase().includes('usb') || d.label.toLowerCase().includes('external'))) idCameraUSB = d.deviceId; 
-                });
-                let restricoes = idCameraUSB ? { video: { deviceId: { exact: idCameraUSB } }, audio: false } : { video: { facingMode: "environment" }, audio: false };
-                localStream1 = await navigator.mediaDevices.getUserMedia(restricoes);
-                videoElement.srcObject = localStream1;
-            } catch(err) { console.error("Erro camera:", err); }
-        }
-
-        async function conectarBluetoothESP32() {
-            try {
-                const device = await navigator.bluetooth.requestDevice({ filters: [{ name: 'Robo-Esteira' }], optionalServices: [BLE_SERVICE_UUID] });
-                const server = await device.gatt.connect();
-                const service = await server.getPrimaryService(BLE_SERVICE_UUID);
-                bluetoothCharacteristic = await service.getCharacteristic(BLE_TX_UUID);
-                
-                await bluetoothCharacteristic.startNotifications();
-                bluetoothCharacteristic.addEventListener('characteristicvaluechanged', (e) => {
-                    const decoder = new TextDecoder();
-                    const stringBruta = decoder.decode(e.target.value);
-                    const par = stringBruta.split(':');
-                    if(par[0] === 'T') distTras = par[1];
-                });
-
-                document.getElementById("btnBluetooth").className = "btn-bt bt-connected";
-                document.getElementById("btnBluetooth").innerText = "SISTEMA INTEGRADO MESTRE";
-            } catch (error) { alert(error.message); }
-        }
-
-        function enviarParaESP32(comando) {
-            if (bluetoothCharacteristic) {
-                const encoder = new TextEncoder();
-                bluetoothCharacteristic.writeValue(encoder.encode(comando)).catch(e => {});
+                localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+                document.getElementById('localVideo').srcObject = localStream;
+                conectarAoOperador();
+            } catch (e) {
+                document.getElementById('status').innerText = "ERRO AO ACESSAR CÂMERA: " + e.message;
             }
         }
 
-        // MOTOR DE RECONEXÃO PERMANENTE (Sem botões, sem F5)
-        async function verificarETentarConexao() {
-            // Se já estiver conectado de verdade, não faz nada
-            if (peerConnection && (peerConnection.connectionState === "connected" || peerConnection.iceConnectionState === "connected")) {
-                document.getElementById("wrtcLabel").innerText = "WebRTC: Conectado";
-                document.getElementById("wrtcLabel").className = "status-wrtc wrtc-on";
-                return; 
+        async function conectarAoOperador() {
+            if (peerConnection) {
+                peerConnection.close();
+                peerConnection = null;
             }
 
-            document.getElementById("wrtcLabel").innerText = "WebRTC: Escutando Operador...";
-            document.getElementById("wrtcLabel").className = "status-wrtc";
+            document.getElementById('status').innerText = "ESCUTANDO OPERADOR (FIREBASE)...";
+            document.getElementById('status').style.background = "#ff9500";
 
-            // Busca uma oferta ativa salva pelo operador
-            const snapshot = await sinalizacaoRef.child('operador/offer').get();
-            const offer = snapshot.val();
+            peerConnection = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
 
-            if (offer) {
-                console.log("Oferta ativa encontrada! Iniciando Handshake automático...");
-                fecharConexaoExistente(); // Limpa tentativas engasgadas anteriores
+            // Adiciona a câmera ao canal
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
-                peerConnection = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-                
-                if (localStream1) {
-                    localStream1.getTracks().forEach(t => peerConnection.addTrack(t, localStream1));
-                }
+            // Captura candidatos ICE locais e envia pro Firebase
+            peerConnection.onicecandidate = (e) => {
+                if (e.candidate) sinalizacaoRef.child('robo/iceCandidates').push(e.candidate.toJSON());
+            };
 
-                peerConnection.onicecandidate = (e) => { 
-                    if (e.candidate) sinalizacaoRef.child('robo/iceCandidates').push(e.candidate.toJSON()); 
+            // Quando o canal de dados abrir
+            peerConnection.ondatachannel = (e) => {
+                dataChannel = e.channel;
+                dataChannel.onopen = () => {
+                    document.getElementById('status').innerText = "CONECTADO E TRANSMITINDO!";
+                    document.getElementById('status').style.background = "#34c759";
                 };
-                
-                peerConnection.ondatachannel = (ev) => {
-                    dataChannel = ev.channel;
-                    dataChannel.onmessage = (e) => { enviarParaESP32(e.data); };
-                    dataChannel.onopen = () => {
-                        if (intervaloTelemetria) clearInterval(intervaloTelemetria);
-                        intervaloTelemetria = setInterval(() => {
-                            if (dataChannel && dataChannel.readyState === "open") {
-                                const pacote = `LAT:${celularLat};LON:${celularLon};DIR:${celularDirecao};TOF_T:${distTras}`;
-                                dataChannel.send(JSON.stringify({ tipo: "telemetria", payload: pacote }));
-                            }
-                        }, 250);
-                    };
+                dataChannel.onmessage = (msg) => {
+                    // Envia os comandos recebidos da Web para o ESP32 via Serial nativa da sua aplicação antiga
+                    if(window.AndroidInterface) {
+                        window.AndroidInterface.enviarAoEsp(msg.data);
+                    } else {
+                        console.log("Comando recebido do PC:", msg.data);
+                    }
                 };
+            };
 
-                // Limpa candidatos de resposta velhos para evitar conflitos de rede
-                await sinalizacaoRef.child('robo/iceCandidates').remove();
-
-                try {
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-                    const answer = await peerConnection.createAnswer(); 
+            // ESCUTA ATIVA DA OFERTA (Se mudar ou sumir, o celular reseta)
+            sinalizacaoRef.child('operador/offer').on('value', async (snapshot) => {
+                const data = snapshot.val();
+                if (data && !peerConnection.currentRemoteDescription) {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(data));
+                    const answer = await peerConnection.createAnswer();
                     await peerConnection.setLocalDescription(answer);
                     await sinalizacaoRef.child('robo/answer').set({ type: answer.type, sdp: answer.sdp });
-                    
-                    // Escuta os candidatos de gelo criados pelo operador
-                    sinalizacaoRef.child('operador/iceCandidates').off(); // Remove escutas duplicadas
-                    sinalizacaoRef.child('operador/iceCandidates').on('child_added', s => { 
-                        if (s.val() && peerConnection && peerConnection.remoteDescription) {
-                            peerConnection.addIceCandidate(new RTCIceCandidate(s.val())).catch(e => {}); 
-                        }
-                    });
-                } catch (err) {
-                    console.error("Erro no ciclo de handshake automático:", err);
+                    document.getElementById('status').innerText = "CONECTANDO VIA ICE...";
                 }
+            });
+
+            // Escuta candidatos ICE do operador
+            sinalizacaoRef.child('operador/iceCandidates').on('child_added', snapshot => {
+                if (snapshot.val() && peerConnection && peerConnection.remoteDescription) {
+                    peerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val())).catch(e => {});
+                }
+            });
+        }
+
+        // Envio de Telemetria (Chamado pelo seu app Android/WebView)
+        function injetarTelemetriaFronEnd(jsonString) {
+            if (dataChannel && dataChannel.readyState === "open") {
+                dataChannel.send(jsonString);
             }
         }
 
-        function fecharConexaoExistente() {
-            if (intervaloTelemetria) { clearInterval(intervaloTelemetria); intervaloTelemetria = null; }
-            if (dataChannel) { try{dataChannel.close();}catch(e){} dataChannel = null; }
-            if (peerConnection) { try{peerConnection.close();}catch(e){} peerConnection = null; }
-        }
-
-        function activarSensoresNativos() {
-            navigator.geolocation.watchPosition(p => { celularLat = p.coords.latitude; celularLon = p.coords.longitude; }, null, { enableHighAccuracy: true });
-            if (window.DeviceOrientationEvent) { window.addEventListener("deviceorientationabsolute", e => { if (e.alpha !== null) celularDirecao = Math.round(e.alpha); }, true); }
-        }
+        window.onload = iniciarMidia;
     </script>
 </body>
 </html>
