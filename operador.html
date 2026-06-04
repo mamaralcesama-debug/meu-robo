@@ -27,6 +27,7 @@
         .slider-group label span { color: var(--accent); font-weight: bold; }
         .slider-group input[type=range] { width: 100%; height: 8px; border-radius: 4px; background: #333; accent-color: var(--primary); }
         
+        /* Layout Grid Corrigido para as Setas (T Invertido) */
         .control-pad { 
             display: grid; 
             grid-template-columns: repeat(3, 65px); 
@@ -146,10 +147,9 @@
         }
 
         async function publicarOfertaEstatica() {
-            document.getElementById("statusPainel").innerText = "PUBLICANDO CANAL DE SINALIZAÇÃO...";
+            document.getElementById("statusPainel").innerText = "GERANDO OFERTA DE SINALIZAÇÃO...";
             document.getElementById("statusPainel").style.color = "#ff9500";
 
-            // Remove escutas antigas antes de limpar para não gerar loops falsos
             sinalizacaoRef.child('robo/answer').off();
             sinalizacaoRef.child('robo/iceCandidates').off();
 
@@ -158,11 +158,8 @@
                 peerConnection = null;
             }
             
-            // Limpeza limpa e segura (apaga apenas os nós internos em vez do nó pai raiz)
-            await Promise.all([
-                sinalizacaoRef.child('operador').remove(),
-                sinalizacaoRef.child('robo').remove()
-            ]);
+            // Remove dados antigos de forma limpa e segura
+            await sinalizacaoRef.set({ reset: true });
 
             peerConnection = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
             
@@ -180,33 +177,29 @@
             };
 
             peerConnection.oniceconnectionstatechange = () => {
-                console.log("Estado ICE:", peerConnection.iceConnectionState);
                 if (peerConnection.iceConnectionState === "disconnected" || 
                     peerConnection.iceConnectionState === "failed" || 
                     peerConnection.iceConnectionState === "closed") {
                     
-                    document.getElementById("statusPainel").innerText = "CONEXÃO PERDIDA! RECONECTANDO EM 3 SEGUNDOS...";
+                    document.getElementById("statusPainel").innerText = "CONEXÃO PERDIDA! RECONECTANDO...";
                     document.getElementById("statusPainel").style.color = "#ff3b30";
-                    
                     pararEnvioContinuo();
 
-                    setTimeout(() => {
-                        console.log("Reiniciando peer connection completo...");
-                        publicarOfertaEstatica();
-                    }, 3000);
+                    setTimeout(() => { publicarOfertaEstatica(); }, 3000);
                 }
             };
 
             const offer = await peerConnection.createOffer({ offerToReceiveVideo: true });
             await peerConnection.setLocalDescription(offer);
             
+            // Envia a oferta para a chave que o celular está vigiando
             await sinalizacaoRef.child('operador/offer').set({ type: offer.type, sdp: offer.sdp });
-            document.getElementById("statusPainel").innerText = "AGUARDANDO CONEXÃO AUTOMÁTICA DO ROBÔ...";
+            document.getElementById("statusPainel").innerText = "AGUARDANDO ATALHO DO ROBÔ...";
 
             sinalizacaoRef.child('robo/answer').on('value', async (s) => { 
                 if (s.val() && peerConnection && !peerConnection.currentRemoteDescription) {
                     await peerConnection.setRemoteDescription(new RTCSessionDescription(s.val()));
-                    console.log("Answer recebida automaticamente.");
+                    console.log("Resposta obtida com sucesso.");
                 }
             });
             
@@ -222,10 +215,7 @@
         function iniciarEnvioContinuo(comando) {
             if (intervaloComandoRepetitivo) clearInterval(intervaloComandoRepetitivo);
             enviar(comando); 
-            
-            intervaloComandoRepetitivo = setInterval(() => {
-                enviar(comando);
-            }, 150);
+            intervaloComandoRepetitivo = setInterval(() => { enviar(comando); }, 150);
         }
 
         function pararEnvioContinuo() {
@@ -249,7 +239,6 @@
                         let v = valores['TOF_T'];
                         document.getElementById('osdTras').innerText = (v === "8190") ? "RÉ: LIVRE" : `DISTÂNCIA RECUO: ${v} mm`;
                     }
-                    
                     if (valores['LAT'] && valores['LON'] && valores['LAT'] !== "0.0") {
                         const latNum = parseFloat(valores['LAT']); const lonNum = parseFloat(valores['LON']);
                         document.getElementById('osdGPS').innerText = `GPS: ${latNum.toFixed(5)}, ${lonNum.toFixed(5)}`;
@@ -266,7 +255,6 @@
                 iniciarEnvioContinuo(cmd); 
             } 
         });
-        
         window.addEventListener('keyup', (e) => { 
             const cmd = comandosTeclado[e.key]; 
             if (cmd && teclaAtiva === e.key) { 
