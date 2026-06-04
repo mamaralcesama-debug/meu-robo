@@ -6,7 +6,7 @@
     <style>
         body { background: #121212; color: #fff; font-family: sans-serif; text-align: center; padding: 20px; margin: 0; }
         h2 { margin-top: 10px; font-size: 1.4rem; }
-        .status-box { padding: 12px; background: #ff9500; color: #000; font-weight: bold; border-radius: 8px; margin-bottom: 15px; }
+        .status-box { padding: 12px; background: #ff9500; color: #000; font-weight: bold; border-radius: 8px; margin-bottom: 15px; transition: all 0.3s ease; }
         .btn-bluetooth { background: #007aff; color: white; border: none; padding: 12px 24px; font-size: 1rem; font-weight: bold; border-radius: 8px; cursor: pointer; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.2); width: 80%; max-width: 400px; }
         .btn-bluetooth:active { background: #0051a8; }
         video { width: 80%; max-width: 400px; border-radius: 8px; transform: scaleX(-1); background: #000; box-shadow: 0 4px 10px rgba(0,0,0,0.4); }
@@ -14,7 +14,7 @@
 </head>
 <body>
 
-    <h2>Rover - Servidor de Mídia e Comandos</h2>
+    <h2>Rover - Servidor de Mídia e Telemetria</h2>
     
     <button class="btn-bluetooth" onclick="parearBluetooth()">🔗 PAREAR BLUETOOTH (ESP32)</button>
 
@@ -38,16 +38,12 @@
         let peerConnection, localStream, dataChannel;
         let sessoesVistas = new Set();
 
-        // Função Nativa do Bluetooth Restaurada
         function parearBluetooth() {
-            if (window.AndroidInterface && window.AndroidInterface.abrirConfiguracaoBluetooth) {
-                console.log("Chamando interface nativa para pareamento Bluetooth...");
-                window.AndroidInterface.abrirConfiguracaoBluetooth();
-            } else if (window.AndroidInterface && window.AndroidInterface.onClickBluetooth) {
-                // Fallback caso o nome da sua função antiga no Java/Kotlin fosse diferente
-                window.AndroidInterface.onClickBluetooth();
+            if (window.AndroidInterface) {
+                if (window.AndroidInterface.abrirConfiguracaoBluetooth) window.AndroidInterface.abrirConfiguracaoBluetooth();
+                else if (window.AndroidInterface.onClickBluetooth) window.AndroidInterface.onClickBluetooth();
             } else {
-                alert("Interface Android não detectada. Execute este arquivo dentro do aplicativo do Rover.");
+                console.log("Interface Android não detectada no navegador comum.");
             }
         }
 
@@ -74,8 +70,6 @@
                 if (sessoesVistas.has(idSessao)) return; 
                 sessoesVistas.add(idSessao);
 
-                console.log("Nova chamada detectada! Reiniciando canal RTC...");
-                
                 if (peerConnection) {
                     peerConnection.close();
                     sinalizacaoRef.child('operador/iceCandidates').off();
@@ -91,15 +85,13 @@
                 peerConnection.ondatachannel = (e) => {
                     dataChannel = e.channel;
                     dataChannel.onopen = () => {
-                        document.getElementById('status').innerText = "CONECTADO E TRANSMITINDO!";
+                        document.getElementById('status').innerText = "CONECTADO AO OPERADOR!";
                         document.getElementById('status').style.background = "#34c759";
                         document.getElementById('status').style.color = "#fff";
                     };
                     dataChannel.onmessage = (msg) => {
                         if(window.AndroidInterface && window.AndroidInterface.enviarAoEsp) {
                             window.AndroidInterface.enviarAoEsp(msg.data);
-                        } else {
-                            console.log("Cmd recebido:", msg.data);
                         }
                     };
                 };
@@ -116,12 +108,22 @@
                 await peerConnection.setLocalDescription(answer);
                 
                 await sinalizacaoRef.child('robo/answer').set({ type: answer.type, sdp: answer.sdp });
-                document.getElementById('status').innerText = "RESPONDIDO! AGUARDANDO TÚNEL ICE...";
+                document.getElementById('status').innerText = "RESPONDIDO! CONECTANDO TÚNEL DE MÍDIA...";
             });
         }
 
-        function injetarTelemetriaFronEnd(jsonString) {
-            if (dataChannel && dataChannel.readyState === "open") dataChannel.send(jsonString);
+        // Função de Telemetria Blindada contra strings brutas
+        function injetarTelemetriaFronEnd(dadosBrutos) {
+            if (dataChannel && dataChannel.readyState === "open") {
+                let pacote;
+                // Se já for um JSON estruturado, manda direto, senão empacota no formato esperado
+                if (typeof dadosBrutos === "string" && dadosBrutos.includes("tipo")) {
+                    pacote = dadosBrutos;
+                } else {
+                    pacote = JSON.stringify({ tipo: "telemetria", payload: dadosBrutos });
+                }
+                dataChannel.send(pacote);
+            }
         }
 
         window.onload = iniciarMidia;
