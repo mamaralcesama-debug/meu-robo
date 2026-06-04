@@ -32,27 +32,33 @@
 
         let localStream1 = null, peerConnection = null, dataChannel = null, intervaloTelemetria = null;
         let celularLat = 0.0, celularLon = 0.0, celularDirecao = 0;
-        let distTras = "--"; // Foco exclusivo na traseira
+        let distTras = "--"; 
 
         let bluetoothCharacteristic = null;
         const BLE_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"; 
         const BLE_TX_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
 
         window.onload = async () => {
-            if ('wakeLock' in navigator) await navigator.wakeLock.request('screen');
+            if ('wakeLock' in navigator) {
+                try { await navigator.wakeLock.request('screen'); } catch(e){}
+            }
             await iniciarCameraResiliente();
             activarSensoresNativos();
             configurarEscutaSinalizacao();
         };
 
         async function iniciarCameraResiliente() {
-            const videoElement = document.getElementById('videoLocal1');
-            const dispositivos = await navigator.mediaDevices.enumerateDevices();
-            let idCameraUSB = null;
-            dispositivos.forEach(d => { if (d.kind === 'videoinput' && (d.label.toLowerCase().includes('usb') || d.label.toLowerCase().includes('external'))) idCameraUSB = d.deviceId; });
-            let restricoes = idCameraUSB ? { video: { deviceId: { exact: idCameraUSB } }, audio: false } : { video: { facingMode: "environment" }, audio: false };
-            localStream1 = await navigator.mediaDevices.getUserMedia(restricoes);
-            videoElement.srcObject = localStream1;
+            try {
+                const videoElement = document.getElementById('videoLocal1');
+                const dispositivos = await navigator.mediaDevices.enumerateDevices();
+                let idCameraUSB = null;
+                dispositivos.forEach(d => { 
+                    if (d.kind === 'videoinput' && (d.label.toLowerCase().includes('usb') || d.label.toLowerCase().includes('external'))) idCameraUSB = d.deviceId; 
+                });
+                let restricoes = idCameraUSB ? { video: { deviceId: { exact: idCameraUSB } }, audio: false } : { video: { facingMode: "environment" }, audio: false };
+                localStream1 = await navigator.mediaDevices.getUserMedia(restricoes);
+                videoElement.srcObject = localStream1;
+            } catch(err) { console.error("Erro camera:", err); }
         }
 
         async function conectarBluetoothESP32() {
@@ -82,13 +88,31 @@
             }
         }
 
+        // ALTERAÇÃO CRUCIAL: Escuta resiliente e assíncrona baseada em mudanças de estado
         function configurarEscutaSinalizacao() {
             sinalizacaoRef.child('operador/offer').on('value', async (snapshot) => {
-                const offer = snapshot.val(); if (!offer) return;
-                if (peerConnection) return;
+                const offer = snapshot.val(); 
+                
+                // Se o operador limpou a oferta ou fechou a sessão, destruímos a conexão antiga local para esperar a próxima
+                if (!offer) {
+                    fecharConexaoExistente();
+                    return;
+                }
+                
+                // Se o operador mandou uma nova oferta e nós já estávamos conectados, resetamos para sincronizar
+                if (peerConnection) {
+                    fecharConexaoExistente();
+                }
+
                 peerConnection = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-                if (localStream1) localStream1.getTracks().forEach(t => peerConnection.addTrack(t, localStream1));
-                peerConnection.onicecandidate = (e) => { if (e.candidate) sinalizacaoRef.child('robo/iceCandidates').push(e.candidate.toJSON()); };
+                
+                if (localStream1) {
+                    localStream1.getTracks().forEach(t => peerConnection.addTrack(t, localStream1));
+                }
+
+                peerConnection.onicecandidate = (e) => { 
+                    if (e.candidate) sinalizacaoRef.child('robo/iceCandidates').push(e.candidate.toJSON()); 
+                };
                 
                 peerConnection.ondatachannel = (ev) => {
                     dataChannel = ev.channel;
@@ -97,18 +121,35 @@
                         if (intervaloTelemetria) clearInterval(intervaloTelemetria);
                         intervaloTelemetria = setInterval(() => {
                             if (dataChannel && dataChannel.readyState === "open") {
-                                // Envia apenas a telemetria do sensor traseiro
                                 const pacote = `LAT:${celularLat};LON:${celularLon};DIR:${celularDirecao};TOF_T:${distTras}`;
                                 dataChannel.send(JSON.stringify({ tipo: "telemetria", payload: pacote }));
                             }
                         }, 250);
                     };
                 };
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-                const answer = await peerConnection.createAnswer(); await peerConnection.setLocalDescription(answer);
-                await sinalizacaoRef.child('robo/answer').set({ type: answer.type, sdp: answer.sdp });
+
+                try {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+                    const answer = await peerConnection.createAnswer(); 
+                    await peerConnection.setLocalDescription(answer);
+                    await sinalizacaoRef.child('robo/answer').set({ type: answer.type, sdp: answer.sdp });
+                } catch (err) {
+                    console.error("Falha ao sincronizar WebRTC:", err);
+                }
             });
-            sinalizacaoRef.child('operador/iceCandidates').on('child_added', s => { if (s.val() && peerConnection) peerConnection.addIceCandidate(new RTCIceCandidate(s.val())); });
+
+            // Escuta dinâmica de candidatos ICE
+            sinalizacaoRef.child('operador/iceCandidates').on('child_added', s => { 
+                if (s.val() && peerConnection && peerConnection.remoteDescription) {
+                    peerConnection.addIceCandidate(new RTCIceCandidate(s.val())).catch(e => {}); 
+                }
+            });
+        }
+
+        function fecharConexaoExistente() {
+            if (intervaloTelemetria) { clearInterval(intervaloTelemetria); intervaloTelemetria = null; }
+            if (dataChannel) { dataChannel.close(); dataChannel = null; }
+            if (peerConnection) { peerConnection.close(); peerConnection = null; }
         }
 
         function activarSensoresNativos() {
