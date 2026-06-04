@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel do Operador - Controle Local/Nuvem</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            background: #121212; 
+            color: white; 
+            text-align: center; 
+            margin: 0; 
+            padding: 20px; 
+        }
+        .grid-container { 
+            display: flex; 
+            flex-direction: column; 
+            align-items: center; 
+            gap: 20px; 
+        }
+        .video-container { 
+            width: 640px; 
+            height: 480px; 
+            background: #000; 
+            border: 3px solid #03a9f4; 
+            border-radius: 8px; 
+            overflow: hidden; 
+        }
+        img { 
+            width: 100%; 
+            height: 100%; 
+            object-fit: cover; 
+        }
+        .controles { 
+            background: #1e1e1e; 
+            padding: 15px; 
+            border-radius: 8px; 
+            border: 1px solid #333; 
+            width: 610px; 
+        }
+        .status { 
+            font-size: 18px; 
+            font-weight: bold; 
+            color: #ff3d00; 
+            margin-top: 10px; 
+        }
+        kbd { 
+            background: #333; 
+            border: 1px solid #555; 
+            padding: 4px 10px; 
+            border-radius: 4px; 
+            font-family: monospace; 
+        }
+    </style>
+</head>
+<body>
+
+    <h2>🎮 Painel de Controle do Robô</h2>
+    
+    <div class="grid-container">
+        <div class="video-container">
+            <img id="videoStream" src="http://192.168.1.15:8080/video" onerror="this.src='data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'640\' height=\'480\'><rect width=\'100%\' height=\'100%\' fill=\'%23222\'/><text x=\'50%\' y=\'50%\' dominant-baseline=\'middle\' text-anchor=\'middle\' fill=\'%23aaa\' font-size=\'20\'>Aguardando Câmera (Verifique o IP)...</text></svg>'">
+        </div>
+
+        <div class="controles">
+            <p>Use as teclas do teclado: <kbd>▲</kbd> (Frente), <kbd>▼</kbd> (Trás), <kbd>◀</kbd> (Esquerda), <kbd>▶</kbd> (Direita). Solte a tecla para parar.</p>
+            <div>Comando Atual Enviado: <span id="cmdAtivo" class="status">S</span></div>
+        </div>
+    </div>
+
+    <script>
+        // Configuração do seu Firebase
+        const firebaseConfig = {
+            apiKey: "AIzaSyAPJOs-lOFuA0zqZrJKmdrWrSr4Vf2dNx0",
+            authDomain: "robo-webrtc-7b32b.firebaseapp.com",
+            databaseURL: "https://robo-webrtc-7b32b-default-rtdb.firebaseio.com",
+            projectId: "robo-webrtc-7b32b",
+            storageBucket: "robo-webrtc-7b32b.firebasestorage.app",
+            messagingSenderId: "488205904754",
+            appId: "1:488205904754:web:52a95187cb2896da5d8beb"
+        };
+        
+        // Inicializa o Firebase no navegador
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+        const cmdRef = db.ref('robot_stream/controls');
+
+        let ultimoCmdEnviado = "S";
+
+        // Função que envia o comando pro Firebase APENAS se ele for diferente do último
+        function enviarComando(novoCmd) {
+            if (novoCmd !== ultimoCmdEnviado) {
+                ultimoCmdEnviado = novoCmd;
+                document.getElementById('cmdAtivo').innerText = novoCmd;
+                cmdRef.update({ cmd: novoCmd });
+            }
+        }
+
+        // Captura o momento em que pressiona a tecla
+        window.addEventListener('keydown', function(event) {
+            if (event.repeat) return; // Evita envios repetidos e travamentos ao segurar a tecla
+            
+            switch (event.key) {
+                case 'ArrowUp':    enviarComando('F'); break; // Frente
+                case 'ArrowDown':  enviarComando('T'); break; // Trás
+                case 'ArrowLeft':  enviarComando('E'); break; // Esquerda
+                case 'ArrowRight': enviarComando('D'); break; // Direita
+            }
+        });
+
+        // Captura o momento em que solta a tecla -> Manda Parar (S - Stop)
+        window.addEventListener('keyup', function(event) {
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) {
+                enviarComando('S'); // Parar
+            }
+        });
+    </script>
+</body>
+</html>
