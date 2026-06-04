@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Robô - Transmissor (Autoreconexão)</title>
+    <title>Robô - Transmissor Oficial</title>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
     <style>
@@ -40,7 +40,7 @@
 <body>
 
     <h2>🤖 Robô (Transmissor)</h2>
-    <p>Conexão via Realtime Database</p>
+    <p>Conexão via Realtime Database (Vídeo + Áudio Ativos)</p>
     
     <video id="localVideo" autoplay playsinline muted></video>
     <div id="status" class="disconnected">Iniciando sistema...</div>
@@ -82,18 +82,20 @@
         let watchDogTimer = null; // Timer responsável pelo reload automático
         const statusDiv = document.getElementById('status');
 
-        // 1. Inicializa a câmera do celular
+        // 1. Inicializa a mídia (Câmera + Microfone)
         async function iniciarRobo() {
             try {
                 localStream = await navigator.mediaDevices.getUserMedia({
                     video: { 
-                        facingMode: "environment", // Força o uso da câmera traseira do celular
+                        facingMode: "environment", // Força câmera traseira
                         width: { ideal: 640 }, 
                         height: { ideal: 480 }, 
-                        frameRate: { ideal: 20 } // Otimizado para não estourar a banda do 4G
+                        frameRate: { ideal: 20 } // Otimizado para economizar banda 4G
                     },
-                    audio: false
+                    audio: true // <--- VALIDADO: Microfone ativado para áudio em tempo real
                 });
+                
+                // Exibe o vídeo local no celular do robô (com 'muted' para não dar microfonia com ele mesmo)
                 document.getElementById('localVideo').srcObject = localStream;
 
                 statusDiv.className = "connecting";
@@ -102,13 +104,13 @@
                 // Limpa registros residuais de conexões passadas no banco
                 await roomRef.remove();
                 
-                // Inicializa a infraestrutura de stream do WebRTC
+                // Inicializa a infraestrutura do WebRTC
                 criarPeerConnection();
                 
             } catch (error) {
-                console.error("Erro ao acessar a câmera:", error);
+                console.error("Erro ao acessar mídias:", error);
                 statusDiv.className = "disconnected";
-                statusDiv.innerText = "Erro: Permissão de câmera negada ou indisponível.";
+                statusDiv.innerText = "Erro: Permissão de câmera/áudio negada.";
             }
         }
 
@@ -118,7 +120,7 @@
             statusDiv.className = "connecting";
             statusDiv.innerText = "Aguardando conexão do observador...";
 
-            // Vincula o feed da câmera ao canal de transmissão
+            // Vincula o feed da câmera E do microfone ao canal de transmissão
             localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
             // Monitora o estado da comunicação em tempo real
@@ -146,7 +148,7 @@
                 }
             };
 
-            // Gera o sinal inicial de vídeo
+            // Gera o sinal inicial de áudio e vídeo
             criarOferta();
         }
 
@@ -155,7 +157,7 @@
             const offerDescription = await peerConnection.createOffer();
             await peerConnection.setLocalDescription(offerDescription);
 
-            // Envia a oferta de vídeo para a "sala" no Realtime Database
+            // Envia a oferta de mídia para a "sala" no Realtime Database
             await roomRef.child('offer').set({
                 sdp: offerDescription.sdp,
                 type: offerDescription.type,
