@@ -7,7 +7,7 @@
 <body style="background: #121212; color: #fff; font-family: sans-serif; text-align: center; padding: 20px;">
 
     <h2>Rover - Servidor de Mídia e Comandos</h2>
-    <div id="status" style="padding: 10px; background: #ff9500; color: #000; font-weight: bold; border-radius: 5px;">AGUARDANDO OPERADOR...</div>
+    <div id="status" style="padding: 10px; background: #ff9500; color: #000; font-weight: bold; border-radius: 5px;">INICIALIZANDO...</div>
     
     <video id="localVideo" autoplay playsinline muted style="width: 80%; max-width: 400px; margin-top: 20px; border-radius: 8px; transform: scaleX(-1);"></video>
 
@@ -25,76 +25,79 @@
         const sinalizacaoRef = database.ref('sinalizacao');
 
         let peerConnection, localStream, dataChannel;
+        let sessoesVistas = new Set();
 
         async function iniciarMidia() {
             try {
                 localStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
                 document.getElementById('localVideo').srcObject = localStream;
-                configurarEscuta();
+                configurarEscutaGlobal();
             } catch (e) {
                 document.getElementById('status').innerText = "ERRO NA CÂMERA: " + e.message;
             }
         }
 
-        function configurarEscuta() {
-            document.getElementById('status').innerText = "AGUARDANDO OFERTA DO OPERADOR...";
+        function configurarEscutaGlobal() {
+            document.getElementById('status').innerText = "VIGIANDO CHAMADAS DO OPERADOR...";
             document.getElementById('status').style.background = "#ff9500";
 
-            // Fica monitorando a oferta criada pelo PC
+            // Escuta principal: O operador cria/atualiza a oferta
             sinalizacaoRef.child('operador/offer').on('value', async (snapshot) => {
                 const offerData = snapshot.val();
-                if (offerData) {
-                    console.log("Oferta recebida, iniciando conexão...");
-                    inicializarPeerConnection();
-                    
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(offerData));
-                    const answer = await peerConnection.createAnswer();
-                    await peerConnection.setLocalDescription(answer);
-                    
-                    await sinalizacaoRef.child('robo/answer').set({ type: answer.type, sdp: answer.sdp });
-                    document.getElementById('status').innerText = "OFERTA ACEITA! CONECTANDO VIA ICE...";
+                if (!offerData) return;
+
+                // Identificador único da sessão para ignorar pacotes repetidos ou antigos
+                const idSessao = offerData.sdp; 
+                if (sessoesVistas.has(idSessao)) return; 
+                sessoesVistas.add(idSessao);
+
+                console.log("Nova chamada detectada! Reiniciando canal RTC...");
+                
+                // Desconecta qualquer rastro anterior
+                if (peerConnection) {
+                    peerConnection.close();
+                    sinalizacaoRef.child('operador/iceCandidates').off();
                 }
-            });
 
-            // Monitora os candidatos ICE vindos do operador
-            sinalizacaoRef.child('operador/iceCandidates').on('child_added', snapshot => {
-                if (snapshot.val() && peerConnection && peerConnection.remoteDescription) {
-                    peerConnection.addIceCandidate(new RTCIceCandidate(snapshot.val())).catch(e => {});
-                }
-            });
-        }
+                peerConnection = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+                localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
 
-        function inicializarPeerConnection() {
-            if (peerConnection) peerConnection.close();
-
-            peerConnection = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-
-            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-
-            peerConnection.onicecandidate = (e) => {
-                if (e.candidate) sinalizacaoRef.child('robo/iceCandidates').push(e.candidate.toJSON());
-            };
-
-            peerConnection.ondatachannel = (e) => {
-                dataChannel = e.channel;
-                dataChannel.onopen = () => {
-                    document.getElementById('status').innerText = "CONECTADO E TRANSMITINDO!";
-                    document.getElementById('status').style.background = "#34c759";
+                peerConnection.onicecandidate = (e) => {
+                    if (e.candidate) sinalizacaoRef.child('robo/iceCandidates').push(e.candidate.toJSON());
                 };
-                dataChannel.onmessage = (msg) => {
-                    if(window.AndroidInterface) {
-                        window.AndroidInterface.enviarAoEsp(msg.data);
-                    } else {
-                        console.log("Comando:", msg.data);
+
+                peerConnection.ondatachannel = (e) => {
+                    dataChannel = e.channel;
+                    dataChannel.onopen = () => {
+                        document.getElementById('status').innerText = "CONECTADO E TRANSMITINDO!";
+                        document.getElementById('status').style.background = "#34c759";
+                    };
+                    dataChannel.onmessage = (msg) => {
+                        if(window.AndroidInterface) window.AndroidInterface.enviarAoEsp(msg.data);
+                        else console.log("Cmd:", msg.data);
+                    };
+                };
+
+                // Configura os candidatos ICE dinamicamente para esta sessão
+                sinalizacaoRef.child('operador/iceCandidates').off();
+                sinalizacaoRef.child('operador/iceCandidates').on('child_added', s => {
+                    if (s.val() && peerConnection && peerConnection.remoteDescription) {
+                        peerConnection.addIceCandidate(new RTCIceCandidate(s.val())).catch(() => {});
                     }
-                };
-            };
+                });
+
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(offerData));
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                
+                // Envia a resposta limpa de volta
+                await sinalizacaoRef.child('robo/answer').set({ type: answer.type, sdp: answer.sdp });
+                document.getElementById('status').innerText = "RESPONDIDO! AGUARDANDO TÚNEL ICE...";
+            });
         }
 
         function injetarTelemetriaFronEnd(jsonString) {
-            if (dataChannel && dataChannel.readyState === "open") {
-                dataChannel.send(jsonString);
-            }
+            if (dataChannel && dataChannel.readyState === "open") dataChannel.send(jsonString);
         }
 
         window.onload = iniciarMidia;
