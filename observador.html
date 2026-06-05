@@ -157,3 +157,80 @@
         
         <div class="slider-container">
             <div class="slider-header"><label>Cotovelo:</label> <span id="v2">90</span>°</div>
+            <input type="range" min="0" max="180" value="90" oninput="enviarServo('servo_cotovelo', this.value, 'v2')">
+        </div>
+        
+        <div class="slider-container">
+            <div class="slider-header"><label>Punho:</label> <span id="v3">90</span>°</div>
+            <input type="range" min="0" max="180" value="90" oninput="enviarServo('servo_punho', this.value, 'v3')">
+        </div>
+        
+        <div class="slider-container">
+            <div class="slider-header"><label>Garra:</label> <span id="v4">10</span>°</div>
+            <input type="range" min="0" max="90" value="10" oninput="enviarServo('servo_garra', this.value, 'v4')">
+        </div>
+    </div>
+
+    <script>
+        // Configuração do Firebase populada com as suas credenciais
+        const firebaseConfig = {
+            apiKey: "AIzaSyAPJOs-lOFuA0zqZrJKmdrWrSr4Vf2dNx0",
+            authDomain: "robo-webrtc-7b32b.firebaseapp.com",
+            databaseURL: "https://robo-webrtc-7b32b-default-rtdb.firebaseio.com",
+            projectId: "robo-webrtc-7b32b",
+            storageBucket: "robo-webrtc-7b32b.firebasestorage.app",
+            messagingSenderId: "488205904754",
+            appId: "1:488205904754:web:52a95187cb2896da5d8beb",
+            measurementId: "G-N5F97EE30J"
+        };
+        
+        // Inicializa o Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        // Configuração WebRTC (PeerJS) com IDs fixos solicitados
+        const peer = new Peer('painel1');
+        
+        peer.on('open', (id) => {
+            console.log('Painel de controle online. ID WebRTC:', id);
+        });
+
+        function conectarAoRobo() {
+            console.log('Solicitando conexão de mídia para: robo1');
+            // Realiza a chamada WebRTC para o celular no robô
+            const call = peer.call('robo1', new MediaStream());
+            
+            call.on('stream', (remoteStream) => {
+                console.log('Stream de vídeo em tempo real renderizado.');
+                document.getElementById('remoteVideo').srcObject = remoteStream;
+            });
+
+            call.on('error', (err) => {
+                console.error('Falha na chamada:', err);
+                alert('Erro ao conectar na câmera do robô. Garanta que a página index.html esteja ativa no celular do rover.');
+            });
+        }
+
+        // Envio de comandos para Ponte H
+        function enviarComando(cmd) {
+            db.ref('controles/movimento').set(cmd);
+        }
+
+        // Envio de posicionamento dos Servos
+        function enviarServo(servo, valor, labelId) {
+            document.getElementById(labelId).innerText = valor;
+            db.ref('controles/' + servo).set(parseInt(valor));
+        }
+
+        // Escuta em tempo real dos parâmetros de telemetria enviados pelo App Inventor
+        db.ref('telemetria').on('value', (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                document.getElementById('txtLat').innerText = data.lat !== undefined ? data.lat : "---";
+                document.getElementById('txtLng').innerText = data.lng !== undefined ? data.lng : "---";
+                document.getElementById('txtBussula').innerText = data.bussula !== undefined ? data.bussula : "---";
+            }
+        });
+    </script>
+</body>
+</html>
