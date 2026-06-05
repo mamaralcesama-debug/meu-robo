@@ -4,194 +4,53 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Painel Observador - Teleoperação</title>
-    
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
-    
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
-
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-            display: flex; 
-            flex-direction: row;
-            height: 100vh;
-            background: #1a1a1a; 
-            color: #eaeaea;
-            overflow: hidden;
-        }
-        
-        /* Divisão principal em duas metades */
-        .half-screen {
-            flex: 1;
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-        }
-
-        /* Lado esquerdo: Painel de Vídeo (Igual ao original) */
-        #video-panel {
-            background: #111;
-            border-right: 2px solid #333;
-            padding: 25px;
-            align-items: center;
-            justify-content: center;
-        }
-        video { 
-            width: 100%; 
-            max-height: 70vh;
-            border-radius: 8px; 
-            background: #000;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-        }
-        .btn-connect {
-            margin-top: 15px;
-            padding: 12px 24px;
-            background: #00ff88;
-            color: #111;
-            font-weight: bold;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: 0.2s;
-        }
+        body { font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: row; height: 100vh; background: #1a1a1a; color: #eaeaea; overflow: hidden; }
+        .half-screen { flex: 1; height: 100%; display: flex; flex-direction: column; }
+        #video-panel { background: #111; border-right: 2px solid #333; padding: 25px; align-items: center; justify-content: center; }
+        video { width: 100%; height: 100%; min-height: 300px; background: #000; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); object-fit: contain; }
+        .btn-connect { margin-top: 15px; padding: 12px 24px; background: #00ff88; color: #111; font-weight: bold; border: none; border-radius: 5px; cursor: pointer; transition: 0.2s; }
         .btn-connect:hover { background: #00cc6c; }
-
-        /* Lado direito: Estrutura em Quadrantes */
-        #right-screen {
-            background: #222;
-        }
-        .quadrant {
-            height: 50%;
-            padding: 20px;
-            overflow-y: auto;
-        }
-        .quadrant-top {
-            border-bottom: 2px solid #333;
-            display: flex;
-            gap: 15px;
-        }
-        .quadrant-bottom {
-            background: #1e1e1e;
-        }
-
-        h3 {
-            margin-bottom: 15px;
-            text-transform: uppercase;
-            font-size: 13px;
-            letter-spacing: 1px;
-            color: #00ff88;
-            border-bottom: 1px solid #444;
-            padding-bottom: 5px;
-            width: 100%;
-        }
-
-        /* Elementos Visuais de Telemetria Superior Direito */
-        .map-wrapper {
-            flex: 2;
-            height: 85%;
-            background: #000;
-            border-radius: 8px;
-            border: 1px solid #444;
-            overflow: hidden;
-        }
+        #right-screen { background: #222; }
+        .quadrant { height: 50%; padding: 20px; overflow-y: auto; }
+        .quadrant-top { border-bottom: 2px solid #333; display: flex; gap: 15px; }
+        .quadrant-bottom { background: #1e1e1e; }
+        h3 { margin-bottom: 15px; text-transform: uppercase; font-size: 13px; letter-spacing: 1px; color: #00ff88; border-bottom: 1px solid #444; padding-bottom: 5px; width: 100%; }
+        .map-wrapper { flex: 2; height: 85%; background: #000; border-radius: 8px; border: 1px solid #444; overflow: hidden; }
         #map { width: 100%; height: 100%; }
-        
-        .compass-wrapper {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            background: #2b2b2b;
-            border-radius: 8px;
-            padding: 10px;
-            height: 85%;
-        }
-        .compass-graphic {
-            width: 100px;
-            height: 100px;
-            position: relative;
-        }
-        .compass-pointer {
-            width: 100%;
-            height: 100%;
-            transition: transform 0.2s ease-out;
-        }
-
-        /* Controles de Movimento Inferior Direito */
-        .controls-layout {
-            display: flex;
-            gap: 20px;
-            height: 85%;
-        }
-        .movement-box {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-        }
-        .control-grid { 
-            display: grid; 
-            grid-template-columns: repeat(3, 1fr); 
-            gap: 10px; 
-            width: 200px; 
-        }
-        .btn-dir { 
-            padding: 18px; 
-            background: #3a3a3a; 
-            color: #fff; 
-            border: none; 
-            cursor: pointer; 
-            font-size: 16px;
-            border-radius: 8px;
-            user-select: none;
-            -webkit-user-select: none;
-        }
+        .compass-wrapper { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #2b2b2b; border-radius: 8px; padding: 10px; height: 85%; }
+        .compass-graphic { width: 100px; height: 100px; position: relative; }
+        .compass-pointer { width: 100%; height: 100%; transition: transform 0.2s ease-out; }
+        .controls-layout { display: flex; gap: 20px; height: 85%; }
+        .movement-box { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .control-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; width: 200px; }
+        .btn-dir { padding: 18px; background: #3a3a3a; color: #fff; border: none; cursor: pointer; font-size: 16px; border-radius: 8px; user-select: none; }
         .btn-dir:active { background: #00ff88; color: #111; }
         .btn-stop { background: #d93838; }
-        .btn-stop:active { background: #b32424; color: #fff; }
-
-        .servos-box {
-            flex: 1.2;
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-        }
-        .slider-container { 
-            background: #2b2b2b;
-            padding: 8px 12px;
-            border-radius: 6px;
-            font-size: 13px;
-        }
+        .servos-box { flex: 1.2; display: flex; flex-direction: column; justify-content: space-between; }
+        .slider-container { background: #2b2b2b; padding: 8px 12px; border-radius: 6px; font-size: 13px; }
         .slider-header { display: flex; justify-content: space-between; margin-bottom: 2px; }
         .slider-header span { font-weight: bold; color: #00ff88; }
-        input[type="range"] { 
-            width: 100%; 
-            accent-color: #00ff88;
-            cursor: pointer;
-        }
+        input[type="range"] { width: 100%; accent-color: #00ff88; cursor: pointer; }
     </style>
 </head>
 <body>
 
     <div class="half-screen" id="video-panel">
-        <h3>Transmissão de Vídeo em Tempo Real (WebRTC)</h3>
+        <h3>Painel de Vídeo Remoto</h3>
         <video id="remoteVideo" autoplay playsinline muted controls></video>
         <button class="btn-connect" onclick="conectarAoRobo()">LIGAR CÂMERA DO ROBÔ</button>
     </div>
 
     <div class="half-screen" id="right-screen">
-        
         <div class="quadrant quadrant-top">
-            <div class="map-wrapper">
-                <div id="map"></div>
-            </div>
+            <div class="map-wrapper"><div id="map"></div></div>
             <div class="compass-wrapper">
                 <div style="font-size:11px; color:#aaa; margin-bottom:5px;">BÚSSOLA: <span id="numBussula">0</span>°</div>
                 <div class="compass-graphic">
@@ -214,50 +73,30 @@
         <div class="quadrant quadrant-bottom">
             <h3>Cockpit de Comando</h3>
             <div class="controls-layout">
-                
                 <div class="movement-box">
-                    <div style="font-size:11px; color:#888; margin-bottom:8px; text-transform:uppercase;">Tração (Ponte H)</div>
                     <div class="control-grid">
                         <div></div>
                         <button class="btn-dir" onmousedown="enviarComando('FRENTE')" onmouseup="enviarComando('PARAR')" ontouchstart="enviarComando('FRENTE')" ontouchend="enviarComando('PARAR')">▲</button>
                         <div></div>
-                        
                         <button class="btn-dir" onmousedown="enviarComando('ESQUERDA')" onmouseup="enviarComando('PARAR')" ontouchstart="enviarComando('ESQUERDA')" ontouchend="enviarComando('PARAR')">◀</button>
                         <button class="btn-dir btn-stop" onclick="enviarComando('PARAR')">■</button>
                         <button class="btn-dir" onmousedown="enviarComando('DIREITA')" onmouseup="enviarComando('PARAR')" ontouchstart="enviarComando('DIREITA')" ontouchend="enviarComando('PARAR')">▶</button>
-                        
                         <div></div>
                         <button class="btn-dir" onmousedown="enviarComando('RE')" onmouseup="enviarComando('PARAR')" ontouchstart="enviarComando('RE')" ontouchend="enviarComando('PARAR')">▼</button>
                         <div></div>
                     </div>
                 </div>
-
                 <div class="servos-box">
-                    <div class="slider-container">
-                        <div class="slider-header"><label>Yaw (Base):</label> <span id="v1">90</span>°</div>
-                        <input type="range" min="0" max="180" value="90" oninput="enviarServo('servo_yaw', this.value, 'v1')">
-                    </div>
-                    <div class="slider-container">
-                        <div class="slider-header"><label>Cotovelo:</label> <span id="v2">90</span>°</div>
-                        <input type="range" min="0" max="180" value="90" oninput="enviarServo('servo_cotovelo', this.value, 'v2')">
-                    </div>
-                    <div class="slider-container">
-                        <div class="slider-header"><label>Punho:</label> <span id="v3">90</span>°</div>
-                        <input type="range" min="0" max="180" value="90" oninput="enviarServo('servo_punho', this.value, 'v3')">
-                    </div>
-                    <div class="slider-container">
-                        <div class="slider-header"><label>Garra:</label> <span id="v4">10</span>°</div>
-                        <input type="range" min="0" max="90" value="10" oninput="enviarServo('servo_garra', this.value, 'v4')">
-                    </div>
+                    <div class="slider-container"><div class="slider-header"><label>Yaw:</label> <span id="v1">90</span>°</div><input type="range" min="0" max="180" value="90" oninput="enviarServo('servo_yaw', this.value, 'v1')"></div>
+                    <div class="slider-container"><div class="slider-header"><label>Cotovelo:</label> <span id="v2">90</span>°</div><input type="range" min="0" max="180" value="90" oninput="enviarServo('servo_cotovelo', this.value, 'v2')"></div>
+                    <div class="slider-container"><div class="slider-header"><label>Punho:</label> <span id="v3">90</span>°</div><input type="range" min="0" max="180" value="90" oninput="enviarServo('servo_punho', this.value, 'v3')"></div>
+                    <div class="slider-container"><div class="slider-header"><label>Garra:</label> <span id="v4">10</span>°</div><input type="range" min="0" max="90" value="10" oninput="enviarServo('servo_garra', this.value, 'v4')"></div>
                 </div>
-
             </div>
         </div>
-
     </div>
 
     <script>
-        // Inicialização das credenciais do Firebase fornecidas
         const firebaseConfig = {
             apiKey: "AIzaSyAPJOs-lOFuA0zqZrJKmdrWrSr4Vf2dNx0",
             authDomain: "robo-webrtc-7b32b.firebaseapp.com",
@@ -271,31 +110,31 @@
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
 
-        // Configuração WebRTC (PeerJS) com STUN do Google injetados para evitar NAT
+        // Registro explícito como 'painel1'
         const peer = new Peer('painel1', {
-            config: {
-                'iceServers': [
-                    { 'urls': 'stun:stun.l.google.com:19302' },
-                    { 'urls': 'stun:stun1.l.google.com:19302' },
-                    { 'urls': 'stun:stun2.l.google.com:19302' }
-                ]
-            }
+            config: { 'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' }, { 'urls': 'stun:stun1.l.google.com:19302' }] }
         });
 
-        // Inicialização do Mapa Leaflet com coordenadas padrão temporárias (Juiz de Fora/BR de fallback)
         const map = L.map('map').setView([-21.76, -43.35], 16);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap'
-        }).addTo(map);
-        const roboMarker = L.marker([-21.76, -43.35]).addTo(map).bindPopup('Posição do Robô');
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        const roboMarker = L.marker([-21.76, -43.35]).addTo(map);
 
+        // FUNÇÃO DE LIGAÇÃO CORRIGIDA: Envia um stream vazio válido que o celular espera
         function conectarAoRobo() {
-            const call = peer.call('robo1', new MediaStream());
+            console.log("Iniciando chamada para 'robo1'...");
+            
+            // Cria um canvas/stream fake apenas para satisfazer o aperto de mão do PeerJS no navegador
+            const fakeCanvas = document.createElement('canvas');
+            fakeCanvas.width = fakeCanvas.height = 1;
+            const fakeStream = fakeCanvas.captureStream ? fakeCanvas.captureStream() : new MediaStream();
+
+            const call = peer.call('robo1', fakeStream);
+            
             call.on('stream', (remoteStream) => {
-                document.getElementById('remoteVideo').srcObject = remoteStream;
-            });
-            call.on('error', (err) => {
-                alert('Erro na conexão de vídeo. Verifique se o index.html está ativo no celular.');
+                console.log("Stream de vídeo recebido com sucesso do celular!");
+                const videoElement = document.getElementById('remoteVideo');
+                videoElement.srcObject = remoteStream;
+                videoElement.play().catch(e => console.log("Erro autoplay:", e));
             });
         }
 
@@ -305,21 +144,15 @@
             db.ref('controles/' + servo).set(parseInt(valor));
         }
 
-        // Monitoramento da Telemetria vinda do App Inventor
         db.ref('telemetria').on('value', (snapshot) => {
             const data = snapshot.val();
             if (data) {
-                // Atualização do GPS e do Mapa dinâmico
-                if (data.lat !== undefined && data.lng !== undefined) {
+                if (data.lat && data.lng) {
                     document.getElementById('geoCoord').innerText = `Lat: ${data.lat.toFixed(5)}, Lng: ${data.lng.toFixed(5)}`;
-                    const novaPosicao = new L.LatLng(data.lat, data.lng);
-                    roboMarker.setLatLng(novaPosicao);
-                    map.panTo(novaPosicao);
+                    const p = new L.LatLng(data.lat, data.lng); roboMarker.setLatLng(p); map.panTo(p);
                 }
-                // Rotação física da agulha da bússola via CSS
                 if (data.bussula !== undefined) {
                     document.getElementById('numBussula').innerText = data.bussula;
-                    // Inverte o ângulo para rotacionar o mostrador ou mantém negativo para simular agulha estável
                     document.getElementById('compassSvg').style.transform = `rotate(${-data.bussula}deg)`;
                 }
             }
