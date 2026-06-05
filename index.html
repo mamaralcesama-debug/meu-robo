@@ -4,79 +4,25 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Transmissor do Robô (Câmera/Áudio)</title>
-    
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
-
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #111;
-            color: #eee;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            padding: 20px;
-            text-align: center;
-        }
-        .container {
-            max-width: 500px;
-            width: 100%;
-            background: #222;
-            padding: 30px;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.8);
-        }
-        h2 {
-            color: #00ff88;
-            margin-bottom: 10px;
-            font-size: 22px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        p {
-            color: #aaa;
-            margin-bottom: 20px;
-            font-size: 14px;
-        }
-        video {
-            width: 100%;
-            max-height: 40vh;
-            border-radius: 8px;
-            background: #000;
-            border: 2px solid #333;
-            margin-bottom: 20px;
-            transform: none; 
-        }
-        .status-box {
-            padding: 15px;
-            background: #2b2b2b;
-            border-left: 4px solid #00ff88;
-            border-radius: 4px;
-            font-size: 14px;
-            font-family: monospace;
-            text-align: left;
-            word-break: break-all;
-        }
-        .status-online {
-            color: #00ff88;
-            font-weight: bold;
-        }
+        body { font-family: 'Segoe UI', sans-serif; background: #111; color: #eee; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; text-align: center; }
+        .container { max-width: 500px; width: 100%; background: #222; padding: 30px; border-radius: 12px; }
+        h2 { color: #00ff88; margin-bottom: 10px; font-size: 22px; text-transform: uppercase; }
+        video { width: 100%; max-height: 40vh; border-radius: 8px; background: #000; border: 2px solid #333; margin-bottom: 20px; }
+        .status-box { padding: 15px; background: #2b2b2b; border-left: 4px solid #00ff88; border-radius: 4px; font-size: 14px; font-family: monospace; text-align: left; }
+        .status-online { color: #00ff88; font-weight: bold; }
     </style>
 </head>
 <body>
-
     <div class="container">
         <h2>Transmissor do Robô</h2>
-        <p>Este dispositivo está configurado como a câmera ativa do rover.</p>
-        
+        <p>Dispositivo ativo na câmera traseira do rover.</p>
         <video id="localVideo" autoplay muted playsinline></video>
-        
         <div class="status-box">
-            <div><strong>Meu ID (Robô):</strong> <span id="my-id">Carregando...</span></div>
-            <div><strong>Status:</strong> <span id="status-text" style="color: #ffaa00;">Inicializando mídia...</span></div>
+            <div><strong>ID do Robô:</strong> <span id="my-id">Carregando...</span></div>
+            <div><strong>Status:</strong> <span id="status-text" style="color: #ffaa00;">Inicializando...</span></div>
         </div>
     </div>
 
@@ -85,15 +31,9 @@
         const myIdLabel = document.getElementById('my-id');
         let localStream = null;
 
-        // Configuração WebRTC (PeerJS) idêntica à do observador com os servidores STUN do Google
+        // Registro explícito como 'robo1'
         const peer = new Peer('robo1', {
-            config: {
-                'iceServers': [
-                    { 'urls': 'stun:stun.l.google.com:19302' },
-                    { 'urls': 'stun:stun1.l.google.com:19302' },
-                    { 'urls': 'stun:stun2.l.google.com:19302' }
-                ]
-            }
+            config: { 'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' }, { 'urls': 'stun:stun1.l.google.com:19302' }] }
         });
 
         peer.on('open', (id) => {
@@ -102,54 +42,35 @@
             verificarProntidao();
         });
 
-        peer.on('error', (err) => {
-            statusText.innerText = "Erro na rede WebRTC: " + err.type;
-            statusText.style.color = "#d93838";
-        });
-
-        // Captura otimizada para câmera traseira
         navigator.mediaDevices.getUserMedia({
-            video: { 
-                facingMode: { ideal: "environment" }, 
-                width: { ideal: 640 }, 
-                height: { ideal: 480 }, 
-                frameRate: { ideal: 30 } 
-            },
-            audio: {
-                echoCancellation: true,
-                noiseSuppression: true
-            }
+            video: { facingMode: { ideal: "environment" }, width: { ideal: 640 }, height: { ideal: 480 } },
+            audio: { echoCancellation: true }
         })
         .then((stream) => {
             localStream = stream;
-            const videoElement = document.getElementById('localVideo');
-            videoElement.srcObject = stream;
-            videoElement.play().catch(e => console.log("Erro ao forçar play:", e));
+            document.getElementById('localVideo').srcObject = stream;
             verificarProntidao();
         })
         .catch((err) => {
-            statusText.innerText = "Erro ao acessar Câmera/Áudio. Ative as permissões!";
-            statusText.style.color = "#d93838";
+            statusText.innerText = "Erro de permissão da câmera.";
         });
 
         function verificarProntidao() {
             if (peer.id && localStream) {
-                statusText.innerText = "Pronto! Aguardando chamada do painel observador...";
+                statusText.innerText = "Pronto! Aguardando chamada do painel...";
                 statusText.style.color = "#00ff88";
             }
         }
 
-        // Atendimento automático da chamada vinda do observador
+        // CORREÇÃO CRÍTICA NA RECEPÇÃO:
+        // Quando o 'painel1' ligar, nós respondemos explicitamente injetando nossa câmera de volta
         peer.on('call', (call) => {
+            console.log("Recebendo chamada de: " + call.peer);
             if (localStream) {
+                // Atende enviando a nossa câmera
                 call.answer(localStream);
                 statusText.innerText = "TRANSMITINDO VÍDEO EM TEMPO REAL!";
                 statusText.style.color = "#00ff88";
-                
-                call.on('close', () => {
-                    statusText.innerText = "Conexão encerrada pelo painel. Aguardando...";
-                    statusText.style.color = "#ffaa00";
-                });
             }
         });
     </script>
