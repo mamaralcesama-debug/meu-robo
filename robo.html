@@ -2,285 +2,100 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Robô - Transmissor, Sensores e Ponte Local</title>
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
-    
+    <title>Painel de Controle do Robô</title>
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <style>
-        body { 
-            font-family: Arial, sans-serif; 
-            text-align: center; 
-            background: #121212; 
-            color: #ffffff; 
-            margin: 0; 
-            padding: 20px; 
-        }
-        .container {
-            max-width: 450px;
-            margin: auto;
-            background: #1e1e1e;
-            padding: 20px;
-            border-radius: 12px;
-            border: 1px solid #333;
-        }
-        video { 
-            width: 100%; 
-            background: #000; 
-            border-radius: 8px; 
-            border: 2px solid #0288d1; 
-            transform: scaleX(-1); /* Espelha a câmera frontal se necessário */
-        }
-        #status { 
-            font-weight: bold; 
-            margin: 15px 0; 
-            padding: 12px; 
-            border-radius: 6px; 
-            font-size: 14px;
-        }
-        .connected { background: #2e7d32; } 
-        .disconnected { background: #c62828; } 
-        .connecting { background: #ef6c00; }
-        
-        .btn-bridge {
-            background: #0288d1;
-            color: white;
-            border: none;
-            padding: 14px;
-            font-size: 16px;
-            font-weight: bold;
-            border-radius: 6px;
-            cursor: pointer;
-            width: 100%;
-            margin-top: 15px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.2);
-        }
-        .btn-bridge:active { background: #01579b; }
-        
-        .sensor-data {
-            text-align: left;
-            background: #2a2a2a;
-            padding: 12px;
-            border-radius: 6px;
-            margin-top: 15px;
-            font-family: monospace;
-            font-size: 13px;
-        }
-        .sensor-data p { margin: 6px 0; color: #ccc; }
-        .sensor-data span { color: #03a9f4; font-weight: bold; }
+        body { font-family: Arial, sans-serif; text-align: center; background: #222; color: #fff;}
+        video { width: 80%; max-width: 800px; background: #000; border: 2px solid #555;}
+        .controls { margin-top: 20px; }
+        button { padding: 15px 30px; font-size: 18px; margin: 5px; cursor: pointer; }
+        .data-panel { background: #333; padding: 10px; margin-top: 15px; border-radius: 5px; display: inline-block; }
     </style>
 </head>
 <body>
+    <h2>Painel do Operador</h2>
+    <div>
+        <input type="text" id="robo-id" placeholder="Digite o ID do Celular" style="padding: 5px;">
+        <button onclick="conectar()">Conectar ao Robô</button>
+    </div>
+    <br>
+    <video id="remote-video" autoplay playsinline muted></video>
+    <br>
+    <button onclick="desmutar()" style="padding: 5px 10px; font-size: 12px;">Ativar Áudio do Robô</button>
+    
+    <div class="data-panel">
+        <p>GPS: <span id="gps-data">Buscando...</span></p>
+        <p>Bússola: <span id="compass-data">0°</span></p>
+    </div>
 
-    <div class="container">
-        <h2>🤖 Câmera do Robô</h2>
-        <video id="localVideo" autoplay playsinline muted></video>
-        
-        <div id="status" class="disconnected">Iniciando sistemas do robô...</div>
-        
-        <button class="btn-bridge" onclick="conectarPonteBluetooth()">🔗 Conectar Ponte Bluetooth Local</button>
-        
-        <div class="sensor-data">
-            <p>Latitude: <span id="valLat">0.000000</span></p>
-            <p>Longitude: <span id="valLng">0.000000</span></p>
-            <p>Direção (Heading): <span id="valHead">0°</span></p>
-            <p>Último Comando: <span id="valCmd" style="color:#ff3d00">Nenhum</span></p>
-        </div>
+    <div class="controls">
+        <button onmousedown="enviar('F')" onmouseup="enviar('S')">Frente (W)</button><br>
+        <button onmousedown="enviar('L')" onmouseup="enviar('S')">Esq (A)</button>
+        <button onmousedown="enviar('S')">Parar (Espaço)</button>
+        <button onmousedown="enviar('R')" onmouseup="enviar('S')">Dir (D)</button><br>
+        <button onmousedown="enviar('B')" onmouseup="enviar('S')">Trás (S)</button>
     </div>
 
     <script>
-        // Configuração idêntica do Firebase obtida no seu painel original
-        const firebaseConfig = {
-            apiKey: "AIzaSyAPJOs-lOFuA0zqZrJKmdrWrSr4Vf2dNx0",
-            authDomain: "robo-webrtc-7b32b.firebaseapp.com",
-            databaseURL: "https://robo-webrtc-7b32b-default-rtdb.firebaseio.com",
-            projectId: "robo-webrtc-7b32b",
-            storageBucket: "robo-webrtc-7b32b.firebasestorage.app",
-            messagingSenderId: "488205904754",
-            appId: "1:488205904754:web:52a95187cb2896da5d8beb",
-            measurementId: "G-N5F97EE30J"
-        };
-        
-        firebase.initializeApp(firebaseConfig);
-        const db = firebase.database();
-        const roomRef = db.ref('robot_stream');
+        const peer = new Peer();
+        let dataConnection;
 
-        let peerConnection = null;
-        let localStream = null;
-        let watchDogTimer = null;
-        const statusDiv = document.getElementById('status');
-
-        // Variáveis globais dos sensores locais
-        let latAtual = 0, lngAtual = 0, headingAtual = 0;
-        let caracteristicaBluetooth = null;
-
-        async function iniciarMidiaERobo() {
-            try {
-                // Solicita acesso à câmera traseira (environment) em 480p e 20 FPS para poupar o 4G
-                localStream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 20 } },
-                    audio: true
-                });
-                document.getElementById('localVideo').srcObject = localStream;
-                statusDiv.className = "connecting"; 
-                statusDiv.innerText = "Limpando sessões antigas no Firebase...";
+        // O PC agora espera receber a chamada de vídeo vinda do robô
+        peer.on('call', call => {
+            console.log("Recebendo chamada de vídeo do robô...");
+            call.answer(); // Responde a chamada (PC apenas assiste, não envia stream)
+            
+            call.on('stream', remoteStream => {
+                console.log("Stream recebido com sucesso!");
+                const video = document.getElementById('remote-video');
+                video.srcObject = remoteStream;
                 
-                await roomRef.remove(); // Limpa resíduos de conexões anteriores no banco
-                criarPeerConnection();
-                ativarSensoresNativos(); 
-            } catch (error) {
-                statusDiv.className = "disconnected"; 
-                statusDiv.innerText = "Erro Crítico: Sem acesso à câmera ou microfone.";
-                console.error(error);
-            }
-        }
-
-        // --- SISTEMA DE CAPTURA DO GPS E BÚSSOLA NATIVOS ---
-        function activarSensoresNativos() {
-            if (navigator.geolocation) {
-                navigator.geolocation.watchPosition(pos => {
-                    latAtual = pos.coords.latitude; 
-                    lngAtual = pos.coords.longitude;
-                    document.getElementById('valLat').innerText = latAtual.toFixed(6);
-                    document.getElementById('valLng').innerText = lngAtual.toFixed(6);
-                }, err => {
-                    console.warn("Aviso: Falha ou bloqueio ao ler GPS nativo.", err);
-                }, { enableHighAccuracy: true, timeout: 8000 });
-            }
-
-            if (window.DeviceOrientationEvent) {
-                // Captura a orientação absoluta (bússola magnética do aparelho)
-                window.addEventListener('deviceorientationabsolute', e => {
-                    if (e.alpha !== null) {
-                        headingAtual = Math.round((360 - e.alpha) % 360);
-                        document.getElementById('valHead').innerText = headingAtual + "°";
-                    }
-                }, true);
-            }
-        }
-
-        // --- ENVIAR TELEMETRIA CONSTANTE PARA O FIREBASE ---
-        setInterval(() => {
-            if (latAtual !== 0 && lngAtual !== 0) {
-                roomRef.child('telemetry').update({
-                    lat: latAtual,
-                    lng: lngAtual,
-                    heading: headingAtual
-                });
-            }
-        }, 400); // Envio em lote a cada 400ms evita gargalos na rede celular
-
-        // --- PONTE BLUETOOTH LOCAL PARA O APP INVENTOR ---
-        async function conectarPonteBluetooth() {
-            try {
-                statusDiv.innerText = "Buscando o aplicativo do robô via Bluetooth...";
-                // UUID do protocolo Serial Port Profile (SPP) padrão utilizado por conexões seriais Bluetooth
-                const uuidSpp = '00001101-0000-1000-8000-00805f9b34fb';
-                
-                const dispositivo = await navigator.bluetooth.requestDevice({
-                    acceptAllDevices: true,
-                    optionalServices: [uuidSpp]
-                });
-                
-                const servidor = await dispositivo.gatt.connect();
-                const servico = await servidor.getPrimaryService(uuidSpp);
-                caracteristicaBluetooth = await servico.getCharacteristic(uuidSpp);
-                
-                statusDiv.className = "connected";
-                statusDiv.innerText = "Ponte com App Conectada via Bluetooth!";
-            } catch (e) {
-                statusDiv.className = "disconnected";
-                statusDiv.innerText = "Falha na conexão Bluetooth local.";
-                console.error("Erro Bluetooth:", e);
-            }
-        }
-
-        // --- ESCUTA DO FIREBASE E TRANSFERÊNCIA DE COMANDOS ---
-        let ultimoCmd = "";
-        roomRef.child('controls/cmd').on('value', async snapshot => {
-            const cmd = snapshot.val();
-            if (cmd && cmd !== ultimoCmd) {
-                ultimoCmd = cmd;
-                document.getElementById('valCmd').innerText = cmd;
-                
-                // Repassa o comando via Bluetooth para o App Inventor se a ponte estiver ativa
-                if (caracteristicaBluetooth) {
-                    try {
-                        const encoder = new TextEncoder();
-                        // Acrescenta o '\n' para o ESP32 saber que o comando terminou
-                        await caracteristicaBluetooth.writeValue(encoder.encode(cmd + "\n"));
-                    } catch (err) {
-                        console.error("Erro ao despachar comando pela ponte local:", err);
-                    }
-                }
-            }
+                // Força o navegador a rodar o vídeo
+                video.play().catch(err => console.error("Erro no autoplay do vídeo:", err));
+            });
         });
 
-        // --- INFRAESTRUTURA WEBRTC COM SERVIDORES METERED ---
-        function criarPeerConnection() {
-            peerConnection = new RTCPeerConnection({
-                iceServers: [
-                    { urls: 'stun:stun.l.google.com:19302' }, 
-                    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' }
-                ],
-                iceCandidatePoolSize: 10
-            });
+        function conectar() {
+            const id = document.getElementById('robo-id').value;
+            if(!id) return alert("Digite o ID");
+
+            // Conecta apenas o canal de dados. O vídeo virá como resposta automática do robô.
+            dataConnection = peer.connect(id);
             
-            // Injeta as faixas de áudio e vídeo capturadas no canal WebRTC
-            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
-
-            peerConnection.onconnectionstatechange = () => {
-                if (peerConnection.connectionState === 'connected') {
-                    statusDiv.className = "connected"; 
-                    statusDiv.innerText = "Transmitindo Ao Vivo para o Observador!";
-                    clearTimeout(watchDogTimer); // Cancela o temporizador de falhas
-                } else if (peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'failed') {
-                    statusDiv.className = "disconnected"; 
-                    statusDiv.innerText = "Conexão perdida. Recarregando em 5 segundos...";
-                    programarRecarregamento(5000);
-                }
-            };
-
-            peerConnection.onicecandidate = event => { 
-                if (event.candidate) roomRef.child('callerCandidates').push(event.candidate.toJSON()); 
-            };
+            dataConnection.on('open', () => console.log("Conectado para comandos e telemetria!"));
             
-            criarOfertaWebRtc();
-        }
-
-        async function criarOfertaWebRtc() {
-            const offer = await peerConnection.createOffer();
-            await peerConnection.setLocalDescription(offer);
-            
-            await roomRef.child('offer').set({ sdp: offer.sdp, type: offer.type, status: "active" });
-            programarRecarregamento(15000); // Se o observador não responder em 15s, dá reload
-
-            // Aguarda a resposta (Answer) vinda do observador.html
-            roomRef.child('answer').on('value', snapshot => {
-                const answer = snapshot.val();
-                if (peerConnection.signalingState !== 'stable' && answer) {
-                    peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
-                }
-            });
-
-            // Coleta os candidatos ICE do observador
-            roomRef.child('calleeCandidates').on('child_added', snapshot => {
-                const candidate = new RTCIceCandidate(snapshot.val());
-                peerConnection.addIceCandidate(candidate).catch(e => console.error(e));
+            dataConnection.on('data', data => {
+                let info = JSON.parse(data);
+                if (info.lat) document.getElementById('gps-data').innerText = `${info.lat.toFixed(5)}, ${info.lon.toFixed(5)}`;
+                if (info.compass) document.getElementById('compass-data').innerText = `${info.compass}°`;
             });
         }
 
-        // Watchdog de software: recarrega a página de forma limpa se o WebRTC travar na inicialização
-        function programarRecarregamento(tempo) {
-            clearTimeout(watchDogTimer);
-            watchDogTimer = setTimeout(() => {
-                if (peerConnection && peerConnection.connectionState !== 'connected') {
-                    window.location.reload();
-                }
-            }, tempo);
+        function desmutar() {
+            const video = document.getElementById('remote-video');
+            video.muted = false;
         }
 
-        window.onload = iniciarMidiaERobo;
+        function enviar(cmd) {
+            if(dataConnection && dataConnection.open) {
+                dataConnection.send(cmd);
+            }
+        }
+
+        // Suporte a teclado
+        document.addEventListener('keydown', (e) => {
+            if(e.repeat) return; // Evita repetições travadas do teclado
+            if(e.key === 'w' || e.key === 'W') enviar('F');
+            if(e.key === 's' || e.key === 'S') enviar('B');
+            if(e.key === 'a' || e.key === 'A') enviar('L');
+            if(e.key === 'd' || e.key === 'D') enviar('R');
+            if(e.key === ' ') enviar('S');
+        });
+        document.addEventListener('keyup', (e) => {
+            if(['w','W','s','S','a','A','d','D',' '].includes(e.key)) {
+                enviar('S');
+            }
+        });
     </script>
 </body>
 </html>
