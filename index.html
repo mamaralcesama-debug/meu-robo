@@ -2,72 +2,97 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <title>Robô - Câmera e Sensores</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robô - Central do Celular</title>
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
-    <style>body { font-family: sans-serif; text-align: center; } video { width: 100%; max-width: 400px; transform: scaleX(-1); }</style>
+    <style>
+        body { font-family: sans-serif; text-align: center; background-color: #f4f4f9; padding: 10px; }
+        video { width: 100%; max-width: 400px; border-radius: 8px; border: 2px solid #ccc; transform: scaleX(-1); }
+        button { padding: 12px 20px; font-size: 16px; border: none; border-radius: 5px; background-color: #007bff; color: white; cursor: pointer; margin: 10px 0; }
+        button:active { background-color: #0056b3; }
+        .status-box { background: #e9ecef; padding: 10px; border-radius: 5px; margin-bottom: 15px; }
+    </style>
 </head>
 <body>
-    <h2>Robô - Central do Celular</h2>
-    <p>Seu ID de Conexão: <strong id="peer-id">Gerando...</strong></p>
+    <h2>Cérebro do Robô</h2>
+    
+    <div class="status-box">
+        <p>Seu ID de Conexão (Copie para o PC): <br><strong id="peer-id" style="font-size: 1.2em; color: #d9534f;">Gerando...</strong></p>
+    </div>
+
     <button id="btn-bluetooth">1. Conectar ao ESP32 (Bluetooth)</button>
-    <p id="ble-status">Bluetooth Desconectado</p>
+    <p id="ble-status" style="font-weight: bold; color: #555;">Bluetooth Desconectado</p>
+
     <video id="video-stream" autoplay muted playsinline></video>
-    <p id="sensor-data">GPS: Aguardando... | Bússola: Aguardando...</p>
+    
+    <div class="status-box">
+        <p id="sensor-data">GPS: Aguardando... | Bússola: Aguardando...</p>
+    </div>
 
     <script>
         const peer = new Peer();
         let dataChannel;
         let localStream;
 
-        peer.on('open', id => { document.getElementById('peer-id').innerText = id; });
+        // Gera o ID do WebRTC
+        peer.on('open', id => { 
+            document.getElementById('peer-id').innerText = id; 
+        });
 
-        // Garante que a câmera seja capturada logo ao abrir a página
+        // Inicia a câmera assim que a página abre
         navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: true })
             .then(stream => {
                 localStream = stream;
                 document.getElementById('video-stream').srcObject = stream;
-            }).catch(err => alert("Erro ao acessar câmera/microfone: " + err));
+            }).catch(err => alert("Erro ao acessar câmera/microfone. Dê as permissões no navegador: " + err));
 
-        // O robô escuta a conexão de dados do PC
+        // Aguarda a conexão do PC para comandos
         peer.on('connection', conn => {
             dataChannel = conn;
-            console.log("PC conectado via dados. Iniciando transmissão de vídeo...");
+            console.log("PC conectado via dados.");
 
-            // Correção: O próprio robô liga para o PC enviando o vídeo assim que o canal de dados abre
+            // Assim que o PC conecta, o celular liga para ele enviando o vídeo
             if (localStream) {
                 peer.call(conn.peer, localStream);
-            } else {
-                console.error("Stream de vídeo não estava pronto no momento da conexão.");
             }
 
+            // Recebe as teclas do PC e repassa para o ESP32 via Bluetooth
             conn.on('data', data => {
                 enviarComandoBLE(data);
             });
         });
 
-        // Bluetooth Low Energy
+        // Configuração do Bluetooth Low Energy (BLE)
         let bleCharacteristic;
         document.getElementById('btn-bluetooth').addEventListener('click', async () => {
             try {
                 const device = await navigator.bluetooth.requestDevice({
-                    filters: [{ name: 'Robo_ESP32' }],
+                    filters: [
+                        { name: 'Robo_ESP32' },
+                        { namePrefix: 'Robo' }
+                    ],
                     optionalServices: ['6e400001-b5a3-f393-e0a9-e50e24dcca9e']
                 });
+                
                 const server = await device.gatt.connect();
                 const service = await server.getPrimaryService('6e400001-b5a3-f393-e0a9-e50e24dcca9e');
                 bleCharacteristic = await service.getCharacteristic('6e400002-b5a3-f393-e0a9-e50e24dcca9e');
-                document.getElementById('ble-status').innerText = "ESP32 Conectado!";
-            } catch (error) { alert("Erro BLE: " + error); }
+                
+                document.getElementById('ble-status').innerText = "ESP32 Conectado com Sucesso! 🟢";
+                document.getElementById('ble-status').style.color = "green";
+            } catch (error) { 
+                alert("Erro BLE (Verifique se o GPS do celular está ligado e o site está em HTTPS): " + error); 
+            }
         });
 
         function enviarComandoBLE(cmd) {
             if (bleCharacteristic) {
                 let encoder = new TextEncoder('utf-8');
-                bleCharacteristic.writeValue(encoder.encode(cmd));
+                bleCharacteristic.writeValue(encoder.encode(cmd)).catch(err => console.log("Erro ao enviar BLE:", err));
             }
         }
 
-        // Sensores (GPS e Bússola)
+        // Telemetria: GPS e Bússola
         setInterval(() => {
             if(dataChannel && dataChannel.open) {
                 navigator.geolocation.getCurrentPosition(pos => {
