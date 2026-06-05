@@ -140,17 +140,23 @@
         }
 
         db.ref('telemetria').on('value', (snapshot) => {
-            const data = snapshot.val();
-            if (data) {
-                if (data.lat && data.lng) {
-                    document.getElementById('geoCoord').innerText = `Lat: ${data.lat.toFixed(5)}, Lng: ${data.lng.toFixed(5)}`;
-                    const p = new L.LatLng(data.lat, data.lng); roboMarker.setLatLng(p); map.panTo(p);
-                }
-                if (data.bussula !== undefined) {
-                    document.getElementById('numBussula').innerText = data.bussula;
-                    document.getElementById('compassSvg').style.transform = `rotate(${-data.bussula}deg)`;
-                }
+    const data = snapshot.val();
+    if (data) {
+        // Se o dado for um objeto contendo a bússola:
+        if (data.bussula !== undefined) {
+            const angulo = data.bussula;
+            
+            // Aqui fica o código que rotaciona a sua bússola gráfica:
+            const bussolaGf = document.getElementById('bussula-agulha'); // ou o ID que usou
+            if (bussolaGf) {
+                bussolaGf.style.transform = `rotate(${-angulo}deg)`;
             }
+            
+            // Se tiver um texto mostrando os graus:
+            const txtGau = document.getElementById('bussula-texto');
+            if (txtGau) txtGau.innerText = `${Math.round(angulo)}°`;
+        }
+    }
         });
     </script>
 </body>
