@@ -3,76 +3,85 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Transmissor do Robô (Câmera/Áudio)</title>
+    <title>Transmissor do Robô</title>
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: 'Segoe UI', sans-serif; background: #111; color: #eee; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 20px; text-align: center; }
-        .container { max-width: 500px; width: 100%; background: #222; padding: 30px; border-radius: 12px; }
-        h2 { color: #00ff88; margin-bottom: 10px; font-size: 22px; text-transform: uppercase; }
-        video { width: 100%; max-height: 40vh; border-radius: 8px; background: #000; border: 2px solid #333; margin-bottom: 20px; }
+        .container { max-width: 500px; width: 100%; background: #222; padding: 30px; border-radius: 12px; border: 1px solid #333; }
+        h2 { color: #00ff88; margin-bottom: 10px; text-transform: uppercase; }
+        video { width: 100%; max-height: 40vh; border-radius: 8px; background: #000; border: 2px solid #444; margin-bottom: 20px; }
         .status-box { padding: 15px; background: #2b2b2b; border-left: 4px solid #00ff88; border-radius: 4px; font-size: 14px; font-family: monospace; text-align: left; }
-        .status-online { color: #00ff88; font-weight: bold; }
     </style>
 </head>
 <body>
     <div class="container">
         <h2>Transmissor do Robô</h2>
-        <p>Dispositivo ativo na câmera traseira do rover.</p>
+        <p>Transmissão da câmara traseira via WebRTC Seguro.</p>
         <video id="localVideo" autoplay muted playsinline></video>
         <div class="status-box">
-            <div><strong>ID do Robô:</strong> <span id="my-id">Carregando...</span></div>
-            <div><strong>Status:</strong> <span id="status-text" style="color: #ffaa00;">Inicializando...</span></div>
+            <div><strong>ID Atual do Robô:</strong> <span id="my-id" style="color:#00ff88;">Gerando...</span></div>
+            <div><strong>Status:</strong> <span id="status-text" style="color: #ffaa00;">Inicializando Hardware...</span></div>
         </div>
     </div>
 
     <script>
-        const statusText = document.getElementById('status-text');
-        const myIdLabel = document.getElementById('my-id');
-        let localStream = null;
+        const firebaseConfig = {
+            apiKey: "AIzaSyAPJOs-lOFuA0zqZrJKmdrWrSr4Vf2dNx0",
+            authDomain: "robo-webrtc-7b32b.firebaseapp.com",
+            databaseURL: "https://robo-webrtc-7b32b-default-rtdb.firebaseio.com",
+            projectId: "robo-webrtc-7b32b",
+            storageBucket: "robo-webrtc-7b32b.firebasestorage.app",
+            messagingSenderId: "488205904754",
+            appId: "1:488205904754:web:52a95187cb2896da5d8beb"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
 
-        // Registro explícito como 'robo1'
-        const peer = new Peer('robo1', {
+        // ID Aleatório para evitar que o ID anterior fique travado na nuvem
+        const meuIdDinamico = 'robo_' + Math.floor(Math.random() * 10000);
+        document.getElementById('my-id').innerText = meuIdDinamico;
+
+        // Envia o ID ativo para o Firebase para o PC saber para quem ligar
+        db.ref('sistema/id_robo_ativo').set(meuIdDinamico);
+
+        const peer = new Peer(meuIdDinamico, {
             config: { 'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' }, { 'urls': 'stun:stun1.l.google.com:19302' }] }
         });
 
-        peer.on('open', (id) => {
-            myIdLabel.innerText = id;
-            myIdLabel.className = "status-online";
-            verificarProntidao();
-        });
+        let localStream = null;
 
+        // Força a captura da câmara com contingência de erro
         navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { ideal: "environment" }, width: { ideal: 640 }, height: { ideal: 480 } },
-            audio: { echoCancellation: true }
+            video: { facingMode: { ideal: "environment" }, width: 640, height: 480 },
+            audio: true
         })
         .then((stream) => {
             localStream = stream;
-            document.getElementById('localVideo').srcObject = stream;
-            verificarProntidao();
+            const video = document.getElementById('localVideo');
+            video.srcObject = stream;
+            video.play().catch(e => console.log(e));
+            statusText('Câmara ativa. Aguardando painel...', '#00ff88');
         })
         .catch((err) => {
-            statusText.innerText = "Erro de permissão da câmera.";
+            statusText('ERRO: Bloqueio de permissão de câmara! Recarregue a página e permita.', '#ff3333');
+            console.error(err);
         });
 
-        function verificarProntidao() {
-            if (peer.id && localStream) {
-                statusText.innerText = "Pronto! Aguardando chamada do painel...";
-                statusText.style.color = "#00ff88";
-            }
-        }
-
-        // CORREÇÃO CRÍTICA NA RECEPÇÃO:
-        // Quando o 'painel1' ligar, nós respondemos explicitamente injetando nossa câmera de volta
         peer.on('call', (call) => {
-            console.log("Recebendo chamada de: " + call.peer);
             if (localStream) {
-                // Atende enviando a nossa câmera
                 call.answer(localStream);
-                statusText.innerText = "TRANSMITINDO VÍDEO EM TEMPO REAL!";
-                statusText.style.color = "#00ff88";
+                statusText('TRANSMITINDO EM TEMPO REAL!', '#00ff88');
             }
         });
+
+        function statusText(txt, color) {
+            const el = document.getElementById('status-text');
+            el.innerText = txt;
+            el.style.color = color;
+        }
     </script>
 </body>
 </html>
