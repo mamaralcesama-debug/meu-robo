@@ -8,17 +8,13 @@
     <style>
         body { font-family: sans-serif; text-align: center; background-color: #f4f4f9; padding: 10px; }
         video { width: 100%; max-width: 400px; border-radius: 8px; border: 2px solid #ccc; transform: scaleX(-1); }
-        button { padding: 12px 20px; font-size: 16px; border: none; border-radius: 5px; background-color: #007bff; color: white; cursor: pointer; margin: 10px 0; }
+        button { padding: 15px 20px; font-size: 16px; border: none; border-radius: 5px; background-color: #007bff; color: white; cursor: pointer; margin: 10px 0; font-weight: bold;}
         button:active { background-color: #0056b3; }
         .status-box { background: #e9ecef; padding: 10px; border-radius: 5px; margin-bottom: 15px; }
     </style>
 </head>
 <body>
     <h2>Cérebro do Robô</h2>
-    
-    <div class="status-box">
-        <p>Seu ID de Conexão (Copie para o PC): <br><strong id="peer-id" style="font-size: 1.2em; color: #d9534f;">Gerando...</strong></p>
-    </div>
 
     <button id="btn-bluetooth">1. Conectar ao ESP32 (Bluetooth)</button>
     <p id="ble-status" style="font-weight: bold; color: #555;">Bluetooth Desconectado</p>
@@ -26,17 +22,20 @@
     <video id="video-stream" autoplay muted playsinline></video>
     
     <div class="status-box">
-        <p id="sensor-data">GPS: Aguardando... | Bússola: Aguardando...</p>
+        <p>Aguardando PC conectar...</p>
+        <p id="sensor-data" style="font-size: 14px;">GPS: Buscando... | Bússola: Buscando...</p>
     </div>
 
     <script>
-        const peer = new Peer();
+        // Define um ID fixo para o celular. O PC sempre ligará para este ID.
+        const meuIdFixo = "meu-robo-secreto-778899"; 
+        const peer = new Peer(meuIdFixo);
+        
         let dataChannel;
         let localStream;
 
-        // Gera o ID do WebRTC
         peer.on('open', id => { 
-            document.getElementById('peer-id').innerText = id; 
+            console.log("Celular pronto para receber conexão no ID: " + id);
         });
 
         // Inicia a câmera assim que a página abre
@@ -62,13 +61,12 @@
             });
         });
 
-        // Configuração do Bluetooth Low Energy (BLE) - MODO ARRASTÃO
+        // Configuração do Bluetooth (Modo Arrastão para resolver bloqueios do Android)
         let bleCharacteristic;
         document.getElementById('btn-bluetooth').addEventListener('click', async () => {
             try {
                 const device = await navigator.bluetooth.requestDevice({
-                    // acceptAllDevices ignora o nome e lista tudo ao redor
-                    acceptAllDevices: true, 
+                    acceptAllDevices: true, // Lista todos os aparelhos ao redor
                     optionalServices: ['6e400001-b5a3-f393-e0a9-e50e24dcca9e']
                 });
                 
@@ -86,7 +84,7 @@
         function enviarComandoBLE(cmd) {
             if (bleCharacteristic) {
                 let encoder = new TextEncoder('utf-8');
-                bleCharacteristic.writeValue(encoder.encode(cmd)).catch(err => console.log("Erro ao enviar BLE:", err));
+                bleCharacteristic.writeValue(encoder.encode(cmd)).catch(err => console.log("Erro ao enviar:", err));
             }
         }
 
@@ -106,7 +104,7 @@
             if(dataChannel && dataChannel.open && event.alpha !== null) {
                 let compass = Math.round(360 - event.alpha);
                 dataChannel.send(JSON.stringify({ compass: compass }));
-                document.getElementById('sensor-data').innerText = `Bússola: ${compass}°`;
+                document.getElementById('sensor-data').innerText = `GPS OK | Bússola: ${compass}°`;
             }
         });
     </script>
