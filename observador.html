@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Painel Observador - Teleoperação</title>
+    <title>Painel Observador</title>
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
@@ -14,30 +14,29 @@
         body { font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: row; height: 100vh; background: #1a1a1a; color: #eaeaea; overflow: hidden; }
         .half-screen { flex: 1; height: 100%; display: flex; flex-direction: column; }
         #video-panel { background: #111; border-right: 2px solid #333; padding: 25px; align-items: center; justify-content: center; }
-        video { width: 100%; height: 100%; min-height: 300px; background: #000; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); object-fit: contain; }
-        .btn-connect { margin-top: 15px; padding: 12px 24px; background: #00ff88; color: #111; font-weight: bold; border: none; border-radius: 5px; cursor: pointer; transition: 0.2s; }
-        .btn-connect:hover { background: #00cc6c; }
+        video { width: 100%; height: 100%; min-height: 300px; background: #000; border-radius: 8px; object-fit: contain; }
+        .btn-connect { margin-top: 15px; padding: 12px 24px; background: #00ff88; color: #111; font-weight: bold; border: none; border-radius: 5px; cursor: pointer; }
         #right-screen { background: #222; }
-        .quadrant { height: 50%; padding: 20px; overflow-y: auto; }
+        .quadrant { height: 50%; padding: 20px; }
         .quadrant-top { border-bottom: 2px solid #333; display: flex; gap: 15px; }
         .quadrant-bottom { background: #1e1e1e; }
-        h3 { margin-bottom: 15px; text-transform: uppercase; font-size: 13px; letter-spacing: 1px; color: #00ff88; border-bottom: 1px solid #444; padding-bottom: 5px; width: 100%; }
-        .map-wrapper { flex: 2; height: 85%; background: #000; border-radius: 8px; border: 1px solid #444; overflow: hidden; }
+        h3 { margin-bottom: 15px; text-transform: uppercase; font-size: 13px; color: #00ff88; border-bottom: 1px solid #444; padding-bottom: 5px; }
+        .map-wrapper { flex: 2; height: 85%; background: #000; border-radius: 8px; overflow: hidden; }
         #map { width: 100%; height: 100%; }
-        .compass-wrapper { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #2b2b2b; border-radius: 8px; padding: 10px; height: 85%; }
-        .compass-graphic { width: 100px; height: 100px; position: relative; }
+        .compass-wrapper { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #2b2b2b; border-radius: 8px; height: 85%; }
+        .compass-graphic { width: 100px; height: 100px; }
         .compass-pointer { width: 100%; height: 100%; transition: transform 0.2s ease-out; }
         .controls-layout { display: flex; gap: 20px; height: 85%; }
         .movement-box { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
         .control-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; width: 200px; }
-        .btn-dir { padding: 18px; background: #3a3a3a; color: #fff; border: none; cursor: pointer; font-size: 16px; border-radius: 8px; user-select: none; }
+        .btn-dir { padding: 18px; background: #3a3a3a; color: #fff; border: none; cursor: pointer; font-size: 16px; border-radius: 8px; }
         .btn-dir:active { background: #00ff88; color: #111; }
         .btn-stop { background: #d93838; }
         .servos-box { flex: 1.2; display: flex; flex-direction: column; justify-content: space-between; }
         .slider-container { background: #2b2b2b; padding: 8px 12px; border-radius: 6px; font-size: 13px; }
-        .slider-header { display: flex; justify-content: space-between; margin-bottom: 2px; }
-        .slider-header span { font-weight: bold; color: #00ff88; }
-        input[type="range"] { width: 100%; accent-color: #00ff88; cursor: pointer; }
+        .slider-header { display: flex; justify-content: space-between; }
+        .slider-header span { color: #00ff88; font-weight: bold; }
+        input[type="range"] { width: 100%; accent-color: #00ff88; }
     </style>
 </head>
 <body>
@@ -57,13 +56,8 @@
                     <svg class="compass-pointer" id="compassSvg" viewBox="0 0 100 100">
                         <circle cx="50" cy="50" r="45" fill="#1f1f1f" stroke="#00ff88" stroke-width="2"/>
                         <text x="50" y="22" fill="#00ff88" font-size="12" font-weight="bold" text-anchor="middle">N</text>
-                        <text x="50" y="88" fill="#666" font-size="10" text-anchor="middle">S</text>
-                        <text x="85" y="54" fill="#666" font-size="10" text-anchor="middle">L</text>
-                        <text x="15" y="54" fill="#666" font-size="10" text-anchor="middle">O</text>
                         <polygon points="50,25 45,50 50,45" fill="#d93838"/>
-                        <polygon points="50,25 55,50 50,45" fill="#b32424"/>
                         <polygon points="50,75 45,50 50,45" fill="#aaa"/>
-                        <polygon points="50,75 55,50 50,45" fill="#777"/>
                     </svg>
                 </div>
                 <div style="font-size:10px; color:#777; margin-top:8px;" id="geoCoord">Lat: ---, Lng: ---</div>
@@ -76,13 +70,13 @@
                 <div class="movement-box">
                     <div class="control-grid">
                         <div></div>
-                        <button class="btn-dir" onmousedown="enviarComando('FRENTE')" onmouseup="enviarComando('PARAR')" ontouchstart="enviarComando('FRENTE')" ontouchend="enviarComando('PARAR')">▲</button>
+                        <button class="btn-dir" onmousedown="enviarComando('FRENTE')" onmouseup="enviarComando('PARAR')">▲</button>
                         <div></div>
-                        <button class="btn-dir" onmousedown="enviarComando('ESQUERDA')" onmouseup="enviarComando('PARAR')" ontouchstart="enviarComando('ESQUERDA')" ontouchend="enviarComando('PARAR')">◀</button>
+                        <button class="btn-dir" onmousedown="enviarComando('ESQUERDA')" onmouseup="enviarComando('PARAR')">◀</button>
                         <button class="btn-dir btn-stop" onclick="enviarComando('PARAR')">■</button>
-                        <button class="btn-dir" onmousedown="enviarComando('DIREITA')" onmouseup="enviarComando('PARAR')" ontouchstart="enviarComando('DIREITA')" ontouchend="enviarComando('PARAR')">▶</button>
+                        <button class="btn-dir" onmousedown="enviarComando('DIREITA')" onmouseup="enviarComando('PARAR')">▶</button>
                         <div></div>
-                        <button class="btn-dir" onmousedown="enviarComando('RE')" onmouseup="enviarComando('PARAR')" ontouchstart="enviarComando('RE')" ontouchend="enviarComando('PARAR')">▼</button>
+                        <button class="btn-dir" onmousedown="enviarComando('RE')" onmouseup="enviarComando('PARAR')">▼</button>
                         <div></div>
                     </div>
                 </div>
@@ -104,37 +98,38 @@
             projectId: "robo-webrtc-7b32b",
             storageBucket: "robo-webrtc-7b32b.firebasestorage.app",
             messagingSenderId: "488205904754",
-            appId: "1:488205904754:web:52a95187cb2896da5d8beb",
-            measurementId: "G-N5F97EE30J"
+            appId: "1:488205904754:web:52a95187cb2896da5d8beb"
         };
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
 
-        // Registro explícito como 'painel1'
-        const peer = new Peer('painel1', {
+        const meuIdPainel = 'painel_' + Math.floor(Math.random() * 10000);
+        const peer = new Peer(meuIdPainel, {
             config: { 'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' }, { 'urls': 'stun:stun1.l.google.com:19302' }] }
+        });
+
+        let idRoboAlvo = '';
+        // Escuta dinamicamente o ID gerado pelo telemóvel
+        db.ref('sistema/id_robo_ativo').on('value', (snapshot) => {
+            idRoboAlvo = snapshot.val();
+            console.log("ID do Robô detectado via Firebase:", idRoboAlvo);
         });
 
         const map = L.map('map').setView([-21.76, -43.35], 16);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
         const roboMarker = L.marker([-21.76, -43.35]).addTo(map);
 
-        // FUNÇÃO DE LIGAÇÃO CORRIGIDA: Envia um stream vazio válido que o celular espera
         function conectarAoRobo() {
-            console.log("Iniciando chamada para 'robo1'...");
+            if(!idRoboAlvo) { alert("Telemóvel do robô não detetado na rede. Abra o index.html nele primeiro."); return; }
             
-            // Cria um canvas/stream fake apenas para satisfazer o aperto de mão do PeerJS no navegador
+            console.log("Ligando para:", idRoboAlvo);
             const fakeCanvas = document.createElement('canvas');
             fakeCanvas.width = fakeCanvas.height = 1;
             const fakeStream = fakeCanvas.captureStream ? fakeCanvas.captureStream() : new MediaStream();
 
-            const call = peer.call('robo1', fakeStream);
-            
+            const call = peer.call(idRoboAlvo, fakeStream);
             call.on('stream', (remoteStream) => {
-                console.log("Stream de vídeo recebido com sucesso do celular!");
-                const videoElement = document.getElementById('remoteVideo');
-                videoElement.srcObject = remoteStream;
-                videoElement.play().catch(e => console.log("Erro autoplay:", e));
+                document.getElementById('remoteVideo').srcObject = remoteStream;
             });
         }
 
