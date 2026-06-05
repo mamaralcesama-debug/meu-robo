@@ -48,7 +48,6 @@
             background: #000;
             border: 2px solid #333;
             margin-bottom: 20px;
-            /* Remove o espelhamento para que a esquerda/direita da câmera seja real */
             transform: none; 
         }
         .status-box {
@@ -86,11 +85,16 @@
         const myIdLabel = document.getElementById('my-id');
         let localStream = null;
 
-        // ========================================================
-        // 1. CONFIGURAÇÃO E INICIALIZAÇÃO DO WEBRTC (PEERJS)
-        // ID fixado como 'robo1' conforme solicitado
-        // ========================================================
-        const peer = new Peer('robo1');
+        // Configuração WebRTC (PeerJS) idêntica à do observador com os servidores STUN do Google
+        const peer = new Peer('robo1', {
+            config: {
+                'iceServers': [
+                    { 'urls': 'stun:stun.l.google.com:19302' },
+                    { 'urls': 'stun:stun1.l.google.com:19302' },
+                    { 'urls': 'stun:stun2.l.google.com:19302' }
+                ]
+            }
+        });
 
         peer.on('open', (id) => {
             myIdLabel.innerText = id;
@@ -99,18 +103,13 @@
         });
 
         peer.on('error', (err) => {
-            console.error('Erro no PeerJS:', err);
             statusText.innerText = "Erro na rede WebRTC: " + err.type;
             statusText.style.color = "#d93838";
         });
 
-        // ========================================================
-        // 2. CAPTURA DE MÍDIA (CÂMERA E MICROFONE)
-        // Otimizado para menor latência e uso da câmera traseira
-        // ========================================================
+        // Captura otimizada para câmera traseira
         navigator.mediaDevices.getUserMedia({
             video: { 
-                // Força o uso da câmera traseira (environment) se disponível
                 facingMode: { ideal: "environment" }, 
                 width: { ideal: 640 }, 
                 height: { ideal: 480 }, 
@@ -125,51 +124,32 @@
             localStream = stream;
             const videoElement = document.getElementById('localVideo');
             videoElement.srcObject = stream;
-            
-            // Garante que o vídeo não pause se o celular travar a tela ou o navegador for para segundo plano
             videoElement.play().catch(e => console.log("Erro ao forçar play:", e));
-            
             verificarProntidao();
         })
         .catch((err) => {
-            console.error('Erro ao acessar câmera/microfone:', err);
-            statusText.innerText = "Erro ao acessar Câmera/Áudio. Permita o acesso!";
+            statusText.innerText = "Erro ao acessar Câmera/Áudio. Ative as permissões!";
             statusText.style.color = "#d93838";
-            alert("Por favor, dê permissão de câmera e áudio nas configurações do navegador.");
         });
 
-        // Auxiliar para atualizar o status na tela
         function verificarProntidao() {
             if (peer.id && localStream) {
                 statusText.innerText = "Pronto! Aguardando chamada do painel observador...";
                 statusText.style.color = "#00ff88";
-            } else if (peer.id) {
-                statusText.innerText = "Aguardando permissão da câmera...";
             }
         }
 
-        // ========================================================
-        // 3. RECEBIMENTO DA CHAMADA (OBSERVADOR -> ROBÔ)
-        // Responde automaticamente enviando o fluxo de vídeo/áudio
-        // ========================================================
+        // Atendimento automático da chamada vinda do observador
         peer.on('call', (call) => {
-            console.log('Recebendo chamada do painel (painel1)...');
-            
             if (localStream) {
-                // Atende a chamada enviando o nosso stream de vídeo/áudio
                 call.answer(localStream);
-                
                 statusText.innerText = "TRANSMITINDO VÍDEO EM TEMPO REAL!";
                 statusText.style.color = "#00ff88";
                 
                 call.on('close', () => {
-                    statusText.innerText = "Conexão encerrada pelo painel. Aguardando nova chamada...";
+                    statusText.innerText = "Conexão encerrada pelo painel. Aguardando...";
                     statusText.style.color = "#ffaa00";
                 });
-            } else {
-                console.log('Chamada recebida, mas a câmera local não está pronta.');
-                statusText.innerText = "Chamada recusada: câmera offline.";
-                statusText.style.color = "#d93838";
             }
         });
     </script>
