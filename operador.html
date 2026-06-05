@@ -2,281 +2,76 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Painel Rover - Monitor Traseiro</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <title>Painel de Controle do Robô</title>
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <style>
-        :root { --bg: #121212; --card: #1e1e1e; --primary: #007aff; --accent: #ff9500; --text: #ffffff; }
-        body { font-family: system-ui, sans-serif; background-color: var(--bg); color: var(--text); margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; }
-        h1 { font-size: 1.6rem; margin-bottom: 5px; }
-        .dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 20px; width: 100%; max-width: 1200px; margin-top: 15px; }
-        .card { background: var(--card); border-radius: 12px; padding: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.4); display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 285px; }
-        
-        .video-container { width: 100%; position: relative; background: #000; border-radius: 8px; overflow: hidden; aspect-ratio: 4/3; }
-        video { width: 100%; height: 100%; object-fit: cover; background: #000; }
-        
-        .osd-label { position: absolute; background: rgba(0, 0, 0, 0.6); color: #4cd964; padding: 4px 8px; font-family: 'Courier New', monospace; font-size: 0.85rem; font-weight: bold; border-radius: 4px; pointer-events: none; border: 1px solid rgba(76, 217, 100, 0.3); }
-        #osdTras   { bottom: 15px; left: 50%; transform: translateX(-50%); color: #ff3b30; border-color: rgba(255, 59, 48, 0.4); font-size: 1rem; }
-        #osdBussola { top: 15px; right: 15px; color: #007aff; border-color: rgba(0,122,255,0.4); }
-        #osdGPS     { top: 15px; left: 15px; color: #fff; border-color: rgba(255,255,255,0.2); }
-
-        #mapa { width: 100%; height: 250px; border-radius: 8px; background: #222; border: 1px solid #333; }
-        .arm-control { width: 100%; display: flex; flex-direction: column; gap: 12px; }
-        .slider-group { display: flex; flex-direction: column; width: 100%; text-align: left; }
-        .slider-group label { font-size: 0.9rem; margin-bottom: 4px; color: #aaa; display: flex; justify-content: space-between; }
-        .slider-group label span { color: var(--accent); font-weight: bold; }
-        .slider-group input[type=range] { width: 100%; height: 8px; border-radius: 4px; background: #333; accent-color: var(--primary); }
-        
-        .control-pad { 
-            display: grid; 
-            grid-template-columns: repeat(3, 65px); 
-            grid-template-rows: repeat(2, 65px); 
-            gap: 12px; 
-            justify-content: center;
-            margin-top: 10px;
-        }
-        .btn-control { 
-            width: 65px; 
-            height: 65px; 
-            background: var(--primary); 
-            color: white; 
-            border: none; 
-            border-radius: 12px; 
-            font-size: 1.5rem; 
-            cursor: pointer; 
-            user-select: none; 
-            display: flex; 
-            align-items: center; 
-            justify-content: center; 
-        }
-        .btn-control:active { background: #0051a8; }
-
-        #btnUp    { grid-column: 2; grid-row: 1; }
-        #btnLeft  { grid-column: 1; grid-row: 2; }
-        #btnDown  { grid-column: 2; grid-row: 2; }
-        #btnRight { grid-column: 3; grid-row: 2; }
-
-        .status-header { background: #1e1e1e; padding: 10px 30px; font-weight: bold; border-radius: 8px; border: 1px solid #333; color: #ff9500; margin-bottom: 10px; transition: color 0.3s ease; }
+        body { font-family: Arial, sans-serif; text-align: center; background: #222; color: #fff;}
+        video { width: 80%; max-width: 800px; background: #000; border: 2px solid #555;}
+        .controls { margin-top: 20px; }
+        button { padding: 15px 30px; font-size: 18px; margin: 5px; cursor: pointer; }
+        .data-panel { background: #333; padding: 10px; margin-top: 15px; border-radius: 5px; display: inline-block; }
     </style>
-    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 </head>
 <body>
+    <h2>Painel do Operador</h2>
+    <div>
+        <input type="text" id="robo-id" placeholder="Digite o ID do Celular" style="padding: 5px;">
+        <button onclick="conectar()">Conectar ao Robô</button>
+    </div>
+    <br>
+    <video id="remote-video" autoplay></video>
+    
+    <div class="data-panel">
+        <p>GPS: <span id="gps-data">Buscando...</span></p>
+        <p>Bússola: <span id="compass-data">0°</span></p>
+    </div>
 
-    <h1>Painel de Inspeção - Configuração Ré Única</h1>
-    <div id="statusPainel" class="status-header">INICIALIZANDO FLUXO...</div>
-
-    <div class="dashboard">
-        <div class="card">
-            <div class="video-container">
-                <video id="videoRemoto1" autoplay playsinline muted></video>
-                <div id="osdGPS" class="osd-label">GPS: Buscando...</div>
-                <div id="osdBussola" class="osd-label">DIR: ---°</div>
-                <div id="osdTras" class="osd-label">DISTÂNCIA RECUO: -- mm</div>
-            </div>
-        </div>
-
-        <div class="card">
-            <h3 style="margin: 0 0 10px 0; font-size: 1.1rem; width: 100%; text-align: left;">Geolocalização</h3>
-            <div id="mapa"></div>
-        </div>
-
-        <div class="card">
-            <h3>Controles do Braço</h3>
-            <div class="arm-control">
-                <div class="slider-group">
-                    <label>Giro da Base (Yaw): <span id="valBase">50%</span></label>
-                    <input type="range" min="0" max="100" value="50" oninput="atualizarLabel('Base', this.value)" onchange="enviarComandoBraco('Y', this.value)">
-                </div>
-                <div class="slider-group">
-                    <label>Cotovelo: <span id="valCotovelo">50%</span></label>
-                    <input type="range" min="0" max="100" value="50" oninput="atualizarLabel('Cotovelo', this.value)" onchange="enviarComandoBraco('C', this.value)">
-                </div>
-                <div class="slider-group">
-                    <label>Elevação do Punho: <span id="valPunho">50%</span></label>
-                    <input type="range" min="0" max="100" value="50" oninput="atualizarLabel('Punho', this.value)" onchange="enviarComandoBraco('P', this.value)">
-                </div>
-                <div class="slider-group">
-                    <label>Abertura da Garra: <span id="valGarra">0%</span></label>
-                    <input type="range" min="0" max="100" value="0" oninput="atualizarLabel('Garra', this.value)" onchange="enviarComandoBraco('G', this.value)">
-                </div>
-            </div>
-        </div>
-
-        <div class="card">
-            <h3>Movimentação do Rover</h3>
-            <div class="control-pad">
-                <button id="btnUp" class="btn-control" onmousedown="iniciarEnvioContinuo('F')" onmouseup="pararEnvioContinuo()" ontouchstart="iniciarEnvioContinuo('F')" ontouchend="pararEnvioContinuo()">▲</button>
-                <button id="btnLeft" class="btn-control" onmousedown="iniciarEnvioContinuo('E')" onmouseup="pararEnvioContinuo()" ontouchstart="iniciarEnvioContinuo('E')" ontouchend="pararEnvioContinuo()">◀</button>
-                <button id="btnDown" class="btn-control" onmousedown="iniciarEnvioContinuo('T')" onmouseup="pararEnvioContinuo()" ontouchstart="iniciarEnvioContinuo('T')" ontouchend="pararEnvioContinuo()">▼</button>
-                <button id="btnRight" class="btn-control" onmousedown="iniciarEnvioContinuo('D')" onmouseup="pararEnvioContinuo()" ontouchstart="iniciarEnvioContinuo('D')" ontouchend="pararEnvioContinuo()">▶</button>
-            </div>
-        </div>
+    <div class="controls">
+        <button onmousedown="enviar('F')" onmouseup="enviar('S')">Frente (W)</button><br>
+        <button onmousedown="enviar('L')" onmouseup="enviar('S')">Esq (A)</button>
+        <button onmousedown="enviar('S')">Parar (Espaço)</button>
+        <button onmousedown="enviar('R')" onmouseup="enviar('S')">Dir (D)</button><br>
+        <button onmousedown="enviar('B')" onmouseup="enviar('S')">Trás (S)</button>
     </div>
 
     <script>
-        const firebaseConfig = {
-            apiKey: "AIzaSyAPJOs-lOFuA0zqZrJKmdrWrSr4Vf2dNx0",
-            authDomain: "robo-webrtc-7b32b.firebaseapp.com",
-            databaseURL: "https://robo-webrtc-7b32b-default-rtdb.firebaseio.com",
-            projectId: "robo-webrtc-7b32b",
-        };
-        firebase.initializeApp(firebaseConfig);
-        const database = firebase.database();
-        let sinalizacaoRef = database.ref('sinalizacao');
-        let peerConnection, dataChannel, map, roboMarker, primeiraCargaGPS = true;
+        const peer = new Peer();
+        let dataConnection;
 
-        const comandosTeclado = { 'w': 'F', 'ArrowUp': 'F', 'a': 'E', 'ArrowLeft': 'E', 's': 'T', 'ArrowDown': 'T', 'd': 'D', 'ArrowRight': 'D' };
-        let teclaAtiva = null;
-        let intervaloComandoRepetitivo = null;
+        function conectar() {
+            const id = document.getElementById('robo-id').value;
+            if(!id) return alert("Digite o ID");
 
-        window.onload = () => {
-            map = L.map('mapa').setView([-14.2350, -51.9253], 4);
-            L.tileLayer('https://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}', { maxZoom: 20, subdomains: ['mt0', 'mt1', 'mt2', 'mt3'] }).addTo(map);
-            publicarOfertaEstatica();
-        };
-
-        function atualizarLabel(id, valor) { document.getElementById('val' + id).innerText = valor + "%"; }
-        function enviarComandoBraco(servoId, valor) { enviar(`B:${servoId}${valor}`); }
-        
-        function atualizarMapa(lat, lon) {
-            if (primeiraCargaGPS) { map.setView([lat, lon], 18); roboMarker = L.marker([lat, lon]).addTo(map); primeiraCargaGPS = false; }
-            else { roboMarker.setLatLng([lat, lon]); }
-        }
-
-        async function publicarOfertaEstatica() {
-            document.getElementById("statusPainel").innerText = "INICIANDO NOVA SESSÃO DE CONEXÃO...";
-            document.getElementById("statusPainel").style.color = "#ff9500";
-
-            sinalizacaoRef.child('robo/answer').off();
-            sinalizacaoRef.child('robo/iceCandidates').off();
-            sinalizacaoRef.child('operador/iceCandidates').off();
-
-            if(peerConnection) { 
-                peerConnection.close(); 
-                peerConnection = null;
-            }
-            
-            await Promise.all([
-                sinalizacaoRef.child('operador').remove(),
-                sinalizacaoRef.child('robo').remove()
-            ]);
-
-            peerConnection = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
-            
-            dataChannel = peerConnection.createDataChannel("comandos");
-            dataChannel.onmessage = receberTelemetriaE_OSD;
-            dataChannel.onopen = () => { 
-                document.getElementById("statusPainel").innerText = "SISTEMA CONECTADO AO ROVER"; 
-                document.getElementById("statusPainel").style.color = "#34c759";
-            };
-            
-            peerConnection.ontrack = (e) => { document.getElementById('videoRemoto1').srcObject = e.streams[0]; };
-            
-            peerConnection.onicecandidate = (e) => { 
-                if (e.candidate) sinalizacaoRef.child('operador/iceCandidates').push(e.candidate.toJSON()); 
-            };
-
-            peerConnection.oniceconnectionstatechange = () => {
-                if (peerConnection.iceConnectionState === "disconnected" || 
-                    peerConnection.iceConnectionState === "failed" || 
-                    peerConnection.iceConnectionState === "closed") {
-                    
-                    document.getElementById("statusPainel").innerText = "SINAL INSTÁVEL! RECONECTANDO...";
-                    document.getElementById("statusPainel").style.color = "#ff3b30";
-                    pararEnvioContinuo();
-
-                    setTimeout(() => { publicarOfertaEstatica(); }, 4000);
-                }
-            };
-
-            // CRÍTICO: Prepara o ouvido antes de enviar o sinal
-            sinalizacaoRef.child('robo/answer').on('value', async (s) => { 
-                const answerData = s.val();
-                if (answerData && peerConnection && !peerConnection.currentRemoteDescription) {
-                    await peerConnection.setRemoteDescription(new RTCSessionDescription(answerData));
-                }
-            });
-            
-            sinalizacaoRef.child('robo/iceCandidates').on('child_added', s => { 
-                if (s.val() && peerConnection && peerConnection.remoteDescription) {
-                    peerConnection.addIceCandidate(new RTCIceCandidate(s.val())).catch(() => {});
-                }
+            // Conecta canal de dados (Comandos e Sensores)
+            dataConnection = peer.connect(id);
+            dataConnection.on('open', () => console.log("Conectado para comandos!"));
+            dataConnection.on('data', data => {
+                let info = JSON.parse(data);
+                if (info.lat) document.getElementById('gps-data').innerText = `${info.lat.toFixed(5)}, ${info.lon.toFixed(5)}`;
+                if (info.compass) document.getElementById('compass-data').innerText = `${info.compass}°`;
             });
 
-            const offer = await peerConnection.createOffer({ offerToReceiveVideo: true });
-            await peerConnection.setLocalDescription(offer);
-            
-            await sinalizacaoRef.child('operador/offer').set({ type: offer.type, sdp: offer.sdp });
-            document.getElementById("statusPainel").innerText = "OFERTA ENVIADA. AGUARDANDO RESPOSTA...";
+            // Conecta canal de mídia (Vídeo/Áudio)
+            const call = peer.call(id, null); // PC não envia vídeo, só recebe
+            call.on('stream', remoteStream => {
+                document.getElementById('remote-video').srcObject = remoteStream;
+            });
         }
 
-        function enviar(comando) { if (dataChannel && dataChannel.readyState === "open") dataChannel.send(comando); }
-
-        function iniciarEnvioContinuo(comando) {
-            if (intervaloComandoRepetitivo) clearInterval(intervaloComandoRepetitivo);
-            enviar(comando); 
-            intervaloComandoRepetitivo = setInterval(() => { enviar(comando); }, 150);
-        }
-
-        function pararEnvioContinuo() {
-            if (intervaloComandoRepetitivo) {
-                clearInterval(intervaloComandoRepetitivo);
-                intervaloComandoRepetitivo = null;
-            }
-            enviar('S'); 
-        }
-
-        // Extrator de Telemetria Atualizado e Tolerante a Falhas
-        function receberTelemetriaE_OSD(event) {
-            try {
-                const dados = JSON.parse(event.data);
-                if (dados.tipo === "telemetria") {
-                    const partes = dados.payload.split(';');
-                    let valores = {};
-                    partes.forEach(p => { const par = p.split(':'); if(par.length === 2) valores[par[0]] = par[1]; });
-                    
-                    // Atualiza Direção/Bússola
-                    if (valores['DIR']) {
-                        document.getElementById('osdBussola').innerText = `DIR: ${valores['DIR']}°`;
-                    }
-                    
-                    // Atualiza Sensor de Ré TOF
-                    if (valores['TOF_T']) {
-                        let v = valores['TOF_T'];
-                        document.getElementById('osdTras').innerText = (v === "8190") ? "RÉ: LIVRE" : `DISTÂNCIA RECUO: ${v} mm`;
-                    }
-                    
-                    // Atualiza Localização GPS e Mapa Dinâmico
-                    if (valores['LAT'] && valores['LON'] && valores['LAT'] !== "0.0" && valores['LAT'] !== "0") {
-                        const latNum = parseFloat(valores['LAT']); 
-                        const lonNum = parseFloat(valores['LON']);
-                        if(!isNaN(latNum) && !isNaN(lonNum)) {
-                            document.getElementById('osdGPS').innerText = `GPS: ${latNum.toFixed(5)}, ${lonNum.toFixed(5)}`;
-                            atualizarMapa(latNum, lonNum);
-                        }
-                    }
-                }
-            } catch (err) {
-                console.log("Erro ao processar pacote de dados recebido:", err);
+        function enviar(cmd) {
+            if(dataConnection && dataConnection.open) {
+                dataConnection.send(cmd);
             }
         }
 
-        window.addEventListener('keydown', (e) => { 
-            const cmd = comandosTeclado[e.key]; 
-            if (cmd && teclaAtiva !== e.key) { 
-                teclaAtiva = e.key; 
-                iniciarEnvioContinuo(cmd); 
-            } 
+        // Suporte a teclado
+        document.addEventListener('keydown', (e) => {
+            if(e.key === 'w' || e.key === 'W') enviar('F');
+            if(e.key === 's' || e.key === 'S') enviar('B');
+            if(e.key === 'a' || e.key === 'A') enviar('L');
+            if(e.key === 'd' || e.key === 'D') enviar('R');
         });
-        window.addEventListener('keyup', (e) => { 
-            const cmd = comandosTeclado[e.key]; 
-            if (cmd && teclaAtiva === e.key) { 
-                teclaAtiva = null; 
-                pararEnvioContinuo(); 
-            } 
-        });
+        document.addEventListener('keyup', () => enviar('S'));
     </script>
 </body>
 </html>
