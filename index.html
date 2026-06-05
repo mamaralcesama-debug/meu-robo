@@ -2,40 +2,176 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <title>Robô - Central do Celular</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transmissor do Robô (Câmera/Áudio)</title>
+    
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #111;
+            color: #eee;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 20px;
+            text-align: center;
+        }
+        .container {
+            max-width: 500px;
+            width: 100%;
+            background: #222;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.8);
+        }
+        h2 {
+            color: #00ff88;
+            margin-bottom: 10px;
+            font-size: 22px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        p {
+            color: #aaa;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        video {
+            width: 100%;
+            max-height: 40vh;
+            border-radius: 8px;
+            background: #000;
+            border: 2px solid #333;
+            margin-bottom: 20px;
+            /* Remove o espelhamento para que a esquerda/direita da câmera seja real */
+            transform: none; 
+        }
+        .status-box {
+            padding: 15px;
+            background: #2b2b2b;
+            border-left: 4px solid #00ff88;
+            border-radius: 4px;
+            font-size: 14px;
+            font-family: monospace;
+            text-align: left;
+            word-break: break-all;
+        }
+        .status-online {
+            color: #00ff88;
+            font-weight: bold;
+        }
+    </style>
 </head>
 <body>
-    <h2>Cérebro do Robô</h2>
-    <button id="btn-bluetooth">1. Conectar ao ESP32</button>
-    <p id="ble-status">Status: Desconectado</p>
-    <video id="video-stream" autoplay muted playsinline></video>
+
+    <div class="container">
+        <h2>Transmissor do Robô</h2>
+        <p>Este dispositivo está configurado como a câmera ativa do rover.</p>
+        
+        <video id="localVideo" autoplay muted playsinline></video>
+        
+        <div class="status-box">
+            <div><strong>Meu ID (Robô):</strong> <span id="my-id">Carregando...</span></div>
+            <div><strong>Status:</strong> <span id="status-text" style="color: #ffaa00;">Inicializando mídia...</span></div>
+        </div>
+    </div>
 
     <script>
-        const peer = new Peer("meu-robo-secreto-778899");
-        let bleCharacteristic;
+        const statusText = document.getElementById('status-text');
+        const myIdLabel = document.getElementById('my-id');
+        let localStream = null;
 
-        document.getElementById('btn-bluetooth').addEventListener('click', async () => {
-            try {
-                const device = await navigator.bluetooth.requestDevice({
-                    acceptAllDevices: true,
-                    optionalServices: ['6e400001-b5a3-f393-e0a9-e50e24dcca9e']
-                });
-                
-                document.getElementById('ble-status').innerText = "Conectando ao GATT...";
-                const server = await device.gatt.connect();
-                
-                document.getElementById('ble-status').innerText = "Buscando serviço...";
-                const service = await server.getPrimaryService('6e400001-b5a3-f393-e0a9-e50e24dcca9e');
-                bleCharacteristic = await service.getCharacteristic('6e400002-b5a3-f393-e0a9-e50e24dcca9e');
-                
-                document.getElementById('ble-status').innerText = "ESP32 Conectado com Sucesso! 🟢";
-            } catch (error) { 
-                alert("Erro BLE: " + error); 
-            }
+        // ========================================================
+        // 1. CONFIGURAÇÃO E INICIALIZAÇÃO DO WEBRTC (PEERJS)
+        // ID fixado como 'robo1' conforme solicitado
+        // ========================================================
+        const peer = new Peer('robo1');
+
+        peer.on('open', (id) => {
+            myIdLabel.innerText = id;
+            myIdLabel.className = "status-online";
+            verificarProntidao();
         });
 
-        // (O restante do código de vídeo e PeerJS continua o mesmo)
+        peer.on('error', (err) => {
+            console.error('Erro no PeerJS:', err);
+            statusText.innerText = "Erro na rede WebRTC: " + err.type;
+            statusText.style.color = "#d93838";
+        });
+
+        // ========================================================
+        // 2. CAPTURA DE MÍDIA (CÂMERA E MICROFONE)
+        // Otimizado para menor latência e uso da câmera traseira
+        // ========================================================
+        navigator.mediaDevices.getUserMedia({
+            video: { 
+                // Força o uso da câmera traseira (environment) se disponível
+                facingMode: { ideal: "environment" }, 
+                width: { ideal: 640 }, 
+                height: { ideal: 480 }, 
+                frameRate: { ideal: 30 } 
+            },
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true
+            }
+        })
+        .then((stream) => {
+            localStream = stream;
+            const videoElement = document.getElementById('localVideo');
+            videoElement.srcObject = stream;
+            
+            // Garante que o vídeo não pause se o celular travar a tela ou o navegador for para segundo plano
+            videoElement.play().catch(e => console.log("Erro ao forçar play:", e));
+            
+            verificarProntidao();
+        })
+        .catch((err) => {
+            console.error('Erro ao acessar câmera/microfone:', err);
+            statusText.innerText = "Erro ao acessar Câmera/Áudio. Permita o acesso!";
+            statusText.style.color = "#d93838";
+            alert("Por favor, dê permissão de câmera e áudio nas configurações do navegador.");
+        });
+
+        // Auxiliar para atualizar o status na tela
+        function verificarProntidao() {
+            if (peer.id && localStream) {
+                statusText.innerText = "Pronto! Aguardando chamada do painel observador...";
+                statusText.style.color = "#00ff88";
+            } else if (peer.id) {
+                statusText.innerText = "Aguardando permissão da câmera...";
+            }
+        }
+
+        // ========================================================
+        // 3. RECEBIMENTO DA CHAMADA (OBSERVADOR -> ROBÔ)
+        // Responde automaticamente enviando o fluxo de vídeo/áudio
+        // ========================================================
+        peer.on('call', (call) => {
+            console.log('Recebendo chamada do painel (painel1)...');
+            
+            if (localStream) {
+                // Atende a chamada enviando o nosso stream de vídeo/áudio
+                call.answer(localStream);
+                
+                statusText.innerText = "TRANSMITINDO VÍDEO EM TEMPO REAL!";
+                statusText.style.color = "#00ff88";
+                
+                call.on('close', () => {
+                    statusText.innerText = "Conexão encerrada pelo painel. Aguardando nova chamada...";
+                    statusText.style.color = "#ffaa00";
+                });
+            } else {
+                console.log('Chamada recebida, mas a câmera local não está pronta.');
+                statusText.innerText = "Chamada recusada: câmera offline.";
+                statusText.style.color = "#d93838";
+            }
+        });
     </script>
 </body>
 </html>
