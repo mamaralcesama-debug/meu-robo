@@ -62,15 +62,13 @@
             });
         });
 
-        // Configuração do Bluetooth Low Energy (BLE)
+        // Configuração do Bluetooth Low Energy (BLE) - MODO ARRASTÃO
         let bleCharacteristic;
         document.getElementById('btn-bluetooth').addEventListener('click', async () => {
             try {
                 const device = await navigator.bluetooth.requestDevice({
-                    filters: [
-                        { name: 'Robo_ESP32' },
-                        { namePrefix: 'Robo' }
-                    ],
+                    // acceptAllDevices ignora o nome e lista tudo ao redor
+                    acceptAllDevices: true, 
                     optionalServices: ['6e400001-b5a3-f393-e0a9-e50e24dcca9e']
                 });
                 
@@ -81,7 +79,7 @@
                 document.getElementById('ble-status').innerText = "ESP32 Conectado com Sucesso! 🟢";
                 document.getElementById('ble-status').style.color = "green";
             } catch (error) { 
-                alert("Erro BLE (Verifique se o GPS do celular está ligado e o site está em HTTPS): " + error); 
+                alert("Erro BLE: " + error); 
             }
         });
 
