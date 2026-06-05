@@ -10,6 +10,9 @@
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { 
@@ -21,32 +24,22 @@
             color: #eaeaea;
             overflow: hidden;
         }
-        .panel { 
-            flex: 1; 
+        
+        /* Divisão principal em duas metades */
+        .half-screen {
+            flex: 1;
             height: 100%;
-            padding: 25px; 
             display: flex;
             flex-direction: column;
-            justify-content: flex-start;
         }
+
+        /* Lado esquerdo: Painel de Vídeo (Igual ao original) */
         #video-panel {
             background: #111;
             border-right: 2px solid #333;
+            padding: 25px;
             align-items: center;
             justify-content: center;
-        }
-        #control-panel {
-            background: #222;
-            overflow-y: auto;
-        }
-        h3 {
-            margin-bottom: 15px;
-            text-transform: uppercase;
-            font-size: 14px;
-            letter-spacing: 1px;
-            color: #00ff88;
-            border-bottom: 1px solid #444;
-            padding-bottom: 5px;
         }
         video { 
             width: 100%; 
@@ -67,33 +60,95 @@
             transition: 0.2s;
         }
         .btn-connect:hover { background: #00cc6c; }
-        
-        .telemetria-container {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 10px;
-            margin-bottom: 25px;
-            background: #2b2b2b;
-            padding: 15px;
-            border-radius: 6px;
-        }
-        .tel-item { text-align: center; }
-        .tel-item span { display: block; font-size: 18px; font-weight: bold; color: #fff; margin-top: 5px;}
 
+        /* Lado direito: Estrutura em Quadrantes */
+        #right-screen {
+            background: #222;
+        }
+        .quadrant {
+            height: 50%;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        .quadrant-top {
+            border-bottom: 2px solid #333;
+            display: flex;
+            gap: 15px;
+        }
+        .quadrant-bottom {
+            background: #1e1e1e;
+        }
+
+        h3 {
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            font-size: 13px;
+            letter-spacing: 1px;
+            color: #00ff88;
+            border-bottom: 1px solid #444;
+            padding-bottom: 5px;
+            width: 100%;
+        }
+
+        /* Elementos Visuais de Telemetria Superior Direito */
+        .map-wrapper {
+            flex: 2;
+            height: 85%;
+            background: #000;
+            border-radius: 8px;
+            border: 1px solid #444;
+            overflow: hidden;
+        }
+        #map { width: 100%; height: 100%; }
+        
+        .compass-wrapper {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #2b2b2b;
+            border-radius: 8px;
+            padding: 10px;
+            height: 85%;
+        }
+        .compass-graphic {
+            width: 100px;
+            height: 100px;
+            position: relative;
+        }
+        .compass-pointer {
+            width: 100%;
+            height: 100%;
+            transition: transform 0.2s ease-out;
+        }
+
+        /* Controles de Movimento Inferior Direito */
+        .controls-layout {
+            display: flex;
+            gap: 20px;
+            height: 85%;
+        }
+        .movement-box {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
         .control-grid { 
             display: grid; 
             grid-template-columns: repeat(3, 1fr); 
             gap: 10px; 
-            width: 220px; 
-            margin: 0 auto 25px auto; 
+            width: 200px; 
         }
         .btn-dir { 
-            padding: 20px; 
+            padding: 18px; 
             background: #3a3a3a; 
             color: #fff; 
             border: none; 
             cursor: pointer; 
-            font-size: 18px;
+            font-size: 16px;
             border-radius: 8px;
             user-select: none;
             -webkit-user-select: none;
@@ -102,13 +157,19 @@
         .btn-stop { background: #d93838; }
         .btn-stop:active { background: #b32424; color: #fff; }
 
-        .slider-container { 
-            margin-bottom: 18px; 
-            background: #2b2b2b;
-            padding: 12px;
-            border-radius: 6px;
+        .servos-box {
+            flex: 1.2;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
         }
-        .slider-header { display: flex; justify-content: space-between; margin-bottom: 5px; }
+        .slider-container { 
+            background: #2b2b2b;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+        }
+        .slider-header { display: flex; justify-content: space-between; margin-bottom: 2px; }
         .slider-header span { font-weight: bold; color: #00ff88; }
         input[type="range"] { 
             width: 100%; 
@@ -119,60 +180,84 @@
 </head>
 <body>
 
-    <div class="panel" id="video-panel">
+    <div class="half-screen" id="video-panel">
         <h3>Transmissão de Vídeo em Tempo Real (WebRTC)</h3>
-       <video id="remoteVideo" autoplay playsinline muted controls style="width: 100%; background: #000;"></video>
+        <video id="remoteVideo" autoplay playsinline muted controls></video>
         <button class="btn-connect" onclick="conectarAoRobo()">LIGAR CÂMERA DO ROBÔ</button>
     </div>
 
-    <div class="panel" id="control-panel">
+    <div class="half-screen" id="right-screen">
         
-        <h3>Telemetria do Rover</h3>
-        <div class="telemetria-container">
-            <div class="tel-item">Latitude<span id="txtLat">---</span></div>
-            <div class="tel-item">Longitude<span id="txtLng">---</span></div>
-            <div class="tel-item">Bússola<span id="txtBussula">---</span>°</div>
+        <div class="quadrant quadrant-top">
+            <div class="map-wrapper">
+                <div id="map"></div>
+            </div>
+            <div class="compass-wrapper">
+                <div style="font-size:11px; color:#aaa; margin-bottom:5px;">BÚSSOLA: <span id="numBussula">0</span>°</div>
+                <div class="compass-graphic">
+                    <svg class="compass-pointer" id="compassSvg" viewBox="0 0 100 100">
+                        <circle cx="50" cy="50" r="45" fill="#1f1f1f" stroke="#00ff88" stroke-width="2"/>
+                        <text x="50" y="22" fill="#00ff88" font-size="12" font-weight="bold" text-anchor="middle">N</text>
+                        <text x="50" y="88" fill="#666" font-size="10" text-anchor="middle">S</text>
+                        <text x="85" y="54" fill="#666" font-size="10" text-anchor="middle">L</text>
+                        <text x="15" y="54" fill="#666" font-size="10" text-anchor="middle">O</text>
+                        <polygon points="50,25 45,50 50,45" fill="#d93838"/>
+                        <polygon points="50,25 55,50 50,45" fill="#b32424"/>
+                        <polygon points="50,75 45,50 50,45" fill="#aaa"/>
+                        <polygon points="50,75 55,50 50,45" fill="#777"/>
+                    </svg>
+                </div>
+                <div style="font-size:10px; color:#777; margin-top:8px;" id="geoCoord">Lat: ---, Lng: ---</div>
+            </div>
         </div>
         
-        <h3>Controles de Movimento (Ponte H)</h3>
-        <div class="control-grid">
-            <div></div>
-            <button class="btn-dir" onmousedown="enviarComando('FRENTE')" onmouseup="enviarComando('PARAR')" ontouchstart="enviarComando('FRENTE')" ontouchend="enviarComando('PARAR')">▲</button>
-            <div></div>
-            
-            <button class="btn-dir" onmousedown="enviarComando('ESQUERDA')" onmouseup="enviarComando('PARAR')" ontouchstart="enviarComando('ESQUERDA')" ontouchend="enviarComando('PARAR')">◀</button>
-            <button class="btn-dir btn-stop" onclick="enviarComando('PARAR')">■</button>
-            <button class="btn-dir" onmousedown="enviarComando('DIREITA')" onmouseup="enviarComando('PARAR')" ontouchstart="enviarComando('DIREITA')" ontouchend="enviarComando('PARAR')">▶</button>
-            
-            <div></div>
-            <button class="btn-dir" onmousedown="enviarComando('RE')" onmouseup="enviarComando('PARAR')" ontouchstart="enviarComando('RE')" ontouchend="enviarComando('PARAR')">▼</button>
-            <div></div>
+        <div class="quadrant quadrant-bottom">
+            <h3>Cockpit de Comando</h3>
+            <div class="controls-layout">
+                
+                <div class="movement-box">
+                    <div style="font-size:11px; color:#888; margin-bottom:8px; text-transform:uppercase;">Tração (Ponte H)</div>
+                    <div class="control-grid">
+                        <div></div>
+                        <button class="btn-dir" onmousedown="enviarComando('FRENTE')" onmouseup="enviarComando('PARAR')" ontouchstart="enviarComando('FRENTE')" ontouchend="enviarComando('PARAR')">▲</button>
+                        <div></div>
+                        
+                        <button class="btn-dir" onmousedown="enviarComando('ESQUERDA')" onmouseup="enviarComando('PARAR')" ontouchstart="enviarComando('ESQUERDA')" ontouchend="enviarComando('PARAR')">◀</button>
+                        <button class="btn-dir btn-stop" onclick="enviarComando('PARAR')">■</button>
+                        <button class="btn-dir" onmousedown="enviarComando('DIREITA')" onmouseup="enviarComando('PARAR')" ontouchstart="enviarComando('DIREITA')" ontouchend="enviarComando('PARAR')">▶</button>
+                        
+                        <div></div>
+                        <button class="btn-dir" onmousedown="enviarComando('RE')" onmouseup="enviarComando('PARAR')" ontouchstart="enviarComando('RE')" ontouchend="enviarComando('PARAR')">▼</button>
+                        <div></div>
+                    </div>
+                </div>
+
+                <div class="servos-box">
+                    <div class="slider-container">
+                        <div class="slider-header"><label>Yaw (Base):</label> <span id="v1">90</span>°</div>
+                        <input type="range" min="0" max="180" value="90" oninput="enviarServo('servo_yaw', this.value, 'v1')">
+                    </div>
+                    <div class="slider-container">
+                        <div class="slider-header"><label>Cotovelo:</label> <span id="v2">90</span>°</div>
+                        <input type="range" min="0" max="180" value="90" oninput="enviarServo('servo_cotovelo', this.value, 'v2')">
+                    </div>
+                    <div class="slider-container">
+                        <div class="slider-header"><label>Punho:</label> <span id="v3">90</span>°</div>
+                        <input type="range" min="0" max="180" value="90" oninput="enviarServo('servo_punho', this.value, 'v3')">
+                    </div>
+                    <div class="slider-container">
+                        <div class="slider-header"><label>Garra:</label> <span id="v4">10</span>°</div>
+                        <input type="range" min="0" max="90" value="10" oninput="enviarServo('servo_garra', this.value, 'v4')">
+                    </div>
+                </div>
+
+            </div>
         </div>
 
-        <h3>Controle do Braço Articulado (Servos)</h3>
-        <div class="slider-container">
-            <div class="slider-header"><label>Yaw (Base):</label> <span id="v1">90</span>°</div>
-            <input type="range" min="0" max="180" value="90" oninput="enviarServo('servo_yaw', this.value, 'v1')">
-        </div>
-        
-        <div class="slider-container">
-            <div class="slider-header"><label>Cotovelo:</label> <span id="v2">90</span>°</div>
-            <input type="range" min="0" max="180" value="90" oninput="enviarServo('servo_cotovelo', this.value, 'v2')">
-        </div>
-        
-        <div class="slider-container">
-            <div class="slider-header"><label>Punho:</label> <span id="v3">90</span>°</div>
-            <input type="range" min="0" max="180" value="90" oninput="enviarServo('servo_punho', this.value, 'v3')">
-        </div>
-        
-        <div class="slider-container">
-            <div class="slider-header"><label>Garra:</label> <span id="v4">10</span>°</div>
-            <input type="range" min="0" max="90" value="10" oninput="enviarServo('servo_garra', this.value, 'v4')">
-        </div>
     </div>
 
     <script>
-        // Configuração do Firebase populada com as suas credenciais
+        // Inicialização das credenciais do Firebase fornecidas
         const firebaseConfig = {
             apiKey: "AIzaSyAPJOs-lOFuA0zqZrJKmdrWrSr4Vf2dNx0",
             authDomain: "robo-webrtc-7b32b.firebaseapp.com",
@@ -183,52 +268,60 @@
             appId: "1:488205904754:web:52a95187cb2896da5d8beb",
             measurementId: "G-N5F97EE30J"
         };
-        
-        // Inicializa o Firebase
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
 
-        // Configuração WebRTC (PeerJS) com IDs fixos solicitados
-        const peer = new Peer('painel1');
-        
-        peer.on('open', (id) => {
-            console.log('Painel de controle online. ID WebRTC:', id);
+        // Configuração WebRTC (PeerJS) com STUN do Google injetados para evitar NAT
+        const peer = new Peer('painel1', {
+            config: {
+                'iceServers': [
+                    { 'urls': 'stun:stun.l.google.com:19302' },
+                    { 'urls': 'stun:stun1.l.google.com:19302' },
+                    { 'urls': 'stun:stun2.l.google.com:19302' }
+                ]
+            }
         });
 
+        // Inicialização do Mapa Leaflet com coordenadas padrão temporárias (Juiz de Fora/BR de fallback)
+        const map = L.map('map').setView([-21.76, -43.35], 16);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
+        const roboMarker = L.marker([-21.76, -43.35]).addTo(map).bindPopup('Posição do Robô');
+
         function conectarAoRobo() {
-            console.log('Solicitando conexão de mídia para: robo1');
-            // Realiza a chamada WebRTC para o celular no robô
             const call = peer.call('robo1', new MediaStream());
-            
             call.on('stream', (remoteStream) => {
-                console.log('Stream de vídeo em tempo real renderizado.');
                 document.getElementById('remoteVideo').srcObject = remoteStream;
             });
-
             call.on('error', (err) => {
-                console.error('Falha na chamada:', err);
-                alert('Erro ao conectar na câmera do robô. Garanta que a página index.html esteja ativa no celular do rover.');
+                alert('Erro na conexão de vídeo. Verifique se o index.html está ativo no celular.');
             });
         }
 
-        // Envio de comandos para Ponte H
-        function enviarComando(cmd) {
-            db.ref('controles/movimento').set(cmd);
-        }
-
-        // Envio de posicionamento dos Servos
+        function enviarComando(cmd) { db.ref('controles/movimento').set(cmd); }
         function enviarServo(servo, valor, labelId) {
             document.getElementById(labelId).innerText = valor;
             db.ref('controles/' + servo).set(parseInt(valor));
         }
 
-        // Escuta em tempo real dos parâmetros de telemetria enviados pelo App Inventor
+        // Monitoramento da Telemetria vinda do App Inventor
         db.ref('telemetria').on('value', (snapshot) => {
             const data = snapshot.val();
             if (data) {
-                document.getElementById('txtLat').innerText = data.lat !== undefined ? data.lat : "---";
-                document.getElementById('txtLng').innerText = data.lng !== undefined ? data.lng : "---";
-                document.getElementById('txtBussula').innerText = data.bussula !== undefined ? data.bussula : "---";
+                // Atualização do GPS e do Mapa dinâmico
+                if (data.lat !== undefined && data.lng !== undefined) {
+                    document.getElementById('geoCoord').innerText = `Lat: ${data.lat.toFixed(5)}, Lng: ${data.lng.toFixed(5)}`;
+                    const novaPosicao = new L.LatLng(data.lat, data.lng);
+                    roboMarker.setLatLng(novaPosicao);
+                    map.panTo(novaPosicao);
+                }
+                // Rotação física da agulha da bússola via CSS
+                if (data.bussula !== undefined) {
+                    document.getElementById('numBussula').innerText = data.bussula;
+                    // Inverte o ângulo para rotacionar o mostrador ou mantém negativo para simular agulha estável
+                    document.getElementById('compassSvg').style.transform = `rotate(${-data.bussula}deg)`;
+                }
             }
         });
     </script>
