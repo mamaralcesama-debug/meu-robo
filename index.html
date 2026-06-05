@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <title>Robô - Câmera e Sensores</title>
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
-    <style>body { font-family: sans-serif; text-align: center; } video { width: 100%; max-width: 400px; }</style>
+    <style>body { font-family: sans-serif; text-align: center; } video { width: 100%; max-width: 400px; transform: scaleX(-1); }</style>
 </head>
 <body>
     <h2>Robô - Central do Celular</h2>
@@ -15,34 +15,37 @@
     <p id="sensor-data">GPS: Aguardando... | Bússola: Aguardando...</p>
 
     <script>
-        // 1. Configuração do WebRTC (PeerJS)
         const peer = new Peer();
-        let peerConnection;
         let dataChannel;
         let localStream;
 
         peer.on('open', id => { document.getElementById('peer-id').innerText = id; });
 
-        peer.on('call', call => {
-            call.answer(localStream); // Envia o vídeo/áudio quando o PC ligar
-        });
-
-        peer.on('connection', conn => {
-            dataChannel = conn;
-            conn.on('data', data => {
-                console.log("Comando recebido: ", data);
-                enviarComandoBLE(data); // Repassa o comando (F, B, L, R, S) para o ESP32
-            });
-        });
-
-        // 2. Câmera e Áudio
+        // Garante que a câmera seja capturada logo ao abrir a página
         navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: true })
             .then(stream => {
                 localStream = stream;
                 document.getElementById('video-stream').srcObject = stream;
-            }).catch(err => console.error("Erro na câmera: ", err));
+            }).catch(err => alert("Erro ao acessar câmera/microfone: " + err));
 
-        // 3. Bluetooth Low Energy (Web Bluetooth API)
+        // O robô escuta a conexão de dados do PC
+        peer.on('connection', conn => {
+            dataChannel = conn;
+            console.log("PC conectado via dados. Iniciando transmissão de vídeo...");
+
+            // Correção: O próprio robô liga para o PC enviando o vídeo assim que o canal de dados abre
+            if (localStream) {
+                peer.call(conn.peer, localStream);
+            } else {
+                console.error("Stream de vídeo não estava pronto no momento da conexão.");
+            }
+
+            conn.on('data', data => {
+                enviarComandoBLE(data);
+            });
+        });
+
+        // Bluetooth Low Energy
         let bleCharacteristic;
         document.getElementById('btn-bluetooth').addEventListener('click', async () => {
             try {
@@ -54,7 +57,7 @@
                 const service = await server.getPrimaryService('6e400001-b5a3-f393-e0a9-e50e24dcca9e');
                 bleCharacteristic = await service.getCharacteristic('6e400002-b5a3-f393-e0a9-e50e24dcca9e');
                 document.getElementById('ble-status').innerText = "ESP32 Conectado!";
-            } catch (error) { console.error("Erro BLE:", error); }
+            } catch (error) { alert("Erro BLE: " + error); }
         });
 
         function enviarComandoBLE(cmd) {
@@ -64,24 +67,23 @@
             }
         }
 
-        // 4. Sensores (GPS e Bússola)
+        // Sensores (GPS e Bússola)
         setInterval(() => {
-            let sensorMsg = {};
-            navigator.geolocation.getCurrentPosition(pos => {
-                sensorMsg.lat = pos.coords.latitude;
-                sensorMsg.lon = pos.coords.longitude;
-            });
-            
-            // O envio ocorre se houver conexão com o PC
             if(dataChannel && dataChannel.open) {
-                dataChannel.send(JSON.stringify(sensorMsg));
+                navigator.geolocation.getCurrentPosition(pos => {
+                    dataChannel.send(JSON.stringify({
+                        lat: pos.coords.latitude,
+                        lon: pos.coords.longitude
+                    }));
+                }, err => console.log("Erro GPS:", err), { enableHighAccuracy: true });
             }
-        }, 2000); // Atualiza GPS a cada 2s
+        }, 2000);
 
         window.addEventListener('deviceorientationabsolute', (event) => {
             if(dataChannel && dataChannel.open && event.alpha !== null) {
-                dataChannel.send(JSON.stringify({ compass: Math.round(360 - event.alpha) }));
-                document.getElementById('sensor-data').innerText = `Bússola: ${Math.round(360 - event.alpha)}°`;
+                let compass = Math.round(360 - event.alpha);
+                dataChannel.send(JSON.stringify({ compass: compass }));
+                document.getElementById('sensor-data').innerText = `Bússola: ${compass}°`;
             }
         });
     </script>
