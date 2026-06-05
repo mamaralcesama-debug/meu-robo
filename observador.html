@@ -149,7 +149,7 @@
             const data = snapshot.val();
             if (data) {
                 // 1. ATUALIZAÇÃO DA BÚSSOLA
-                if (data.bussula !== undefined) {
+                if (data.bussula !== undefined && data.bussula !== null) {
                     const angulo = data.bussula;
                     
                     // Atualiza o texto em graus
@@ -163,20 +163,28 @@
                     }
                 }
 
-                // 2. ATUALIZAÇÃO DO MAPA (GPS)
-                if (data.lat !== undefined && data.lng !== undefined) {
-                    const novaLat = data.lat;
-                    const novaLng = data.lng;
+                // 2. ATUALIZAÇÃO DO MAPA (GPS) - Com validação dupla de segurança
+                if (data.lat !== undefined && data.lat !== null && data.lng !== undefined && data.lng !== null) {
+                    const novaLat = parseFloat(data.lat);
+                    const novaLng = parseFloat(data.lng);
 
-                    // Atualiza o texto das coordenadas abaixo da bússola
-                    const txtGeo = document.getElementById('geoCoord');
-                    if (txtGeo) txtGeo.innerText = `Lat: ${novaLat.toFixed(5)}, Lng: ${novaLng.toFixed(5)}`;
+                    // Só executa se os dois forem números válidos (não resultaram em NaN)
+                    if (!isNaN(novaLat) && !isNaN(novaLng)) {
+                        
+                        // Atualiza o texto das coordenadas abaixo da bússola
+                        const txtGeo = document.getElementById('geoCoord');
+                        if (txtGeo) txtGeo.innerText = `Lat: ${novaLat.toFixed(5)}, Lng: ${novaLng.toFixed(5)}`;
 
-                    // Move o marcador vermelho do robô no mapa para a nova posição
-                    roboMarker.setLatLng([novaLat, novaLng]);
-                    
-                    // Centraliza o mapa suavemente na nova coordenada do robô
-                    map.panTo([novaLat, novaLng]);
+                        // Move o marcador vermelho do robô no mapa para a nova posição
+                        if (typeof roboMarker !== 'undefined') {
+                            roboMarker.setLatLng([novaLat, novaLng]);
+                        }
+                        
+                        // Centraliza o mapa suavemente na nova coordenada do robô
+                        if (typeof map !== 'undefined') {
+                            map.panTo([novaLat, novaLng]);
+                        }
+                    }
                 }
             }
         });
