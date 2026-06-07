@@ -27,11 +27,21 @@
         .compass-graphic { width: 100px; height: 100px; }
         .compass-pointer { width: 100%; height: 100%; transition: transform 0.2s ease-out; }
         .controls-layout { display: flex; gap: 20px; height: 85%; }
-        .movement-box { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-        .control-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; width: 200px; }
+        
+        /* Ajuste do bloco de movimento para comportar o slider vertical lado a lado */
+        .movement-box { flex: 1.2; display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 20px; background: #232323; border-radius: 8px; padding: 10px; }
+        .control-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; width: 180px; }
         .btn-dir { padding: 18px; background: #3a3a3a; color: #fff; border: none; cursor: pointer; font-size: 16px; border-radius: 8px; }
         .btn-dir:active { background: #00ff88; color: #111; }
         .btn-stop { background: #d93838; }
+        
+        /* Estilização do novo Slider Vertical de Velocidade Máxima */
+        .vertical-slider-container { display: flex; flex-direction: column; align-items: center; height: 140px; justify-content: space-between; font-size: 11px; background: #2b2b2b; padding: 8px; border-radius: 6px; width: 55px; }
+        .vertical-slider-container input[type="range"] { -webkit-appearance: none; appearance: none; width: 6px; height: 85px; background: #444; border-radius: 3px; outline: none; writing-mode: vertical-lr; direction: rtl; }
+        .vertical-slider-container input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #00ff88; cursor: pointer; box-shadow: 0 0 4px #000; }
+        .vertical-slider-container input[type="range"]::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: #00ff88; cursor: pointer; border: none; box-shadow: 0 0 4px #000; }
+        .vertical-slider-container span { color: #00ff88; font-weight: bold; font-family: monospace; }
+
         .servos-box { flex: 1.2; display: flex; flex-direction: column; justify-content: space-between; }
         .slider-container { background: #2b2b2b; padding: 8px 12px; border-radius: 6px; font-size: 13px; }
         .slider-header { display: flex; justify-content: space-between; }
@@ -79,7 +89,14 @@
                         <button class="btn-dir" onmousedown="enviarComando('RE')" onmouseup="enviarComando('PARAR')">▼</button>
                         <div></div>
                     </div>
+                    
+                    <div class="vertical-slider-container">
+                        <div style="color: #aaa; font-weight: bold; font-size: 9px; text-transform: uppercase;">V. Máx</div>
+                        <input type="range" min="0" max="100" value="100" oninput="enviarVelocidade(this.value)">
+                        <span id="vVelocidade">100%</span>
+                    </div>
                 </div>
+                
                 <div class="servos-box">
                     <div class="slider-container"><div class="slider-header"><label>Yaw:</label> <span id="v1">90</span>°</div><input type="range" min="0" max="180" value="90" oninput="enviarServo('servo_yaw', this.value, 'v1')"></div>
                     <div class="slider-container"><div class="slider-header"><label>Cotovelo:</label> <span id="v2">90</span>°</div><input type="range" min="0" max="180" value="90" oninput="enviarServo('servo_cotovelo', this.value, 'v2')"></div>
@@ -142,6 +159,12 @@
         function enviarServo(servo, valor, labelId) {
             document.getElementById(labelId).innerText = valor;
             db.ref('controles/' + servo).set(parseInt(valor));
+        }
+        
+        // Nova função que envia a velocidade máxima (0-100%) para o nó do Firebase
+        function enviarVelocidade(valor) {
+            document.getElementById('vVelocidade').innerText = valor + '%';
+            db.ref('controles/velocidade').set(parseInt(valor));
         }
 
         // RECEBIMENTO DA TELEMETRIA REAL DO SMARTPHONE (BÚSSOLA E GPS)
