@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel Observador</title>
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: row; height: 100vh; background: #1a1a1a; color: #eaeaea; overflow: hidden; }
+        .half-screen { flex: 1; height: 100%; display: flex; flex-direction: column; }
+        #video-panel { background: #111; border-right: 2px solid #333; padding: 25px; align-items: center; justify-content: center; }
+        video { width: 100%; height: 100%; min-height: 300px; background: #000; border-radius: 8px; object-fit: contain; }
+        .btn-connect { margin-top: 15px; padding: 12px 24px; background: #00ff88; color: #111; font-weight: bold; border: none; border-radius: 5px; cursor: pointer; }
+        #right-screen { background: #222; }
+        .quadrant { height: 50%; padding: 20px; }
+        .quadrant-top { border-bottom: 2px solid #333; display: flex; gap: 15px; }
+        .quadrant-bottom { background: #1e1e1e; display: flex; flex-direction: column; justify-content: space-between; }
+        h3 { margin-bottom: 10px; text-transform: uppercase; font-size: 13px; color: #00ff88; border-bottom: 1px solid #444; padding-bottom: 5px; }
+        .map-wrapper { flex: 2; height: 85%; background: #000; border-radius: 8px; overflow: hidden; }
+        #map { width: 100%; height: 100%; }
+        .compass-wrapper { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #2b2b2b; border-radius: 8px; height: 85%; }
+        .compass-graphic { width: 100px; height: 100px; }
+        .compass-pointer { width: 100%; height: 100%; transition: transform 0.2s ease-out; }
+        .controls-layout { display: flex; gap: 20px; height: 70%; }
+        
+        /* Ajuste do bloco de movimento para comportar o slider vertical lado a lado */
+        .movement-box { flex: 1.2; display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 20px; background: #232323; border-radius: 8px; padding: 10px; }
+        .control-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; width: 180px; }
+        .btn-dir { padding: 18px; background: #3a3a3a; color: #fff; border: none; cursor: pointer; font-size: 16px; border-radius: 8px; }
+        .btn-dir:active { background: #00ff88; color: #111; }
+        .btn-stop { background: #d93838; }
+        
+        /* Estilização do Slider Vertical de Velocidade Máxima */
+        .vertical-slider-container { display: flex; flex-direction: column; align-items: center; height: 140px; justify-content: space-between; font-size: 11px; background: #2b2b2b; padding: 8px; border-radius: 6px; width: 55px; }
+        .vertical-slider-container input[type="range"] { -webkit-appearance: none; appearance: none; width: 6px; height: 85px; background: #444; border-radius: 3px; outline: none; writing-mode: vertical-lr; direction: rtl; }
+        .vertical-slider-container input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #00ff88; cursor: pointer; box-shadow: 0 0 4px #000; }
+        .vertical-slider-container input[type="range"]::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: #00ff88; cursor: pointer; border: none; box-shadow: 0 0 4px #000; }
+        .vertical-slider-container span { color: #00ff88; font-weight: bold; font-family: monospace; }
+
+        .servos-box { flex: 1.2; display: flex; flex-direction: column; justify-content: space-between; }
+        .slider-container { background: #2b2b2b; padding: 8px 12px; border-radius: 6px; font-size: 13px; }
+        .slider-header { display: flex; justify-content: space-between; }
+        .slider-header span { color: #00ff88; font-weight: bold; }
+        input[type="range"] { width: 100%; accent-color: #00ff88; }
+
+        /* Novo Container de Automação por String */
+        .automation-container { display: flex; gap: 10px; background: #232323; padding: 10px; border-radius: 8px; margin-top: 10px; align-items: center; }
+        .automation-container input[type="text"] { flex: 1; padding: 10px; background: #111; border: 1px solid #444; color: #00ff88; font-weight: bold; font-family: monospace; border-radius: 5px; font-size: 14px; text-transform: uppercase; outline: none; }
+        .automation-container input[type="text"]:focus { border-color: #00ff88; }
+        .btn-automation { padding: 10px 20px; background: #00ff88; color: #111; font-weight: bold; border: none; border-radius: 5px; cursor: pointer; text-transform: uppercase; font-size: 12px; }
+        .btn-automation:disabled { background: #555; color: #aaa; cursor: not-allowed; }
+        #statusAutomacao { font-size: 11px; color: #aaa; min-width: 120px; text-align: right; font-family: monospace; }
+    </style>
+</head>
+<body>
+
+    <div class="half-screen" id="video-panel">
+        <h3>Painel de Vídeo Remoto</h3>
+        <video id="remoteVideo" autoplay playsinline muted controls></video>
+        <button class="btn-connect" onclick="conectarAoRobo()">LIGAR CÂMERA DO ROBÔ</button>
+    </div>
+
+    <div class="half-screen" id="right-screen">
+        <div class="quadrant quadrant-top">
+            <div class="map-wrapper"><div id="map"></div></div>
+            <div class="compass-wrapper">
+                <div style="font-size:11px; color:#aaa; margin-bottom:5px;">BÚSSOLA: <span id="numBussula">0</span>°</div>
+                <div class="compass-graphic">
+                    <svg class="compass-pointer" id="compassSvg" viewBox="0 0 100 100">
+                        <circle cx="50" cy="50" r="45" fill="#1f1f1f" stroke="#00ff88" stroke-width="2"/>
+                        <text x="50" y="22" fill="#00ff88" font-size="12" font-weight="bold" text-anchor="middle">N</text>
+                        <polygon points="50,25 45,50 50,45" fill="#d93838"/>
+                        <polygon points="50,75 45,50 50,45" fill="#aaa"/>
+                    </svg>
+                </div>
+                <div style="font-size:10px; color:#777; margin-top:8px;" id="geoCoord">Lat: ---, Lng: ---</div>
+            </div>
+        </div>
+        
+        <div class="quadrant quadrant-bottom">
+            <h3>Cockpit de Comando</h3>
+            <div class="controls-layout">
+                <div class="movement-box">
+                    <div class="control-grid">
+                        <div></div>
+                        <button class="btn-dir" onmousedown="enviarComando('FRENTE')" onmouseup="enviarComando('PARAR')">▲</button>
+                        <div></div>
+                        <button class="btn-dir" onmousedown="enviarComando('ESQUERDA')" onmouseup="enviarComando('PARAR')">◀</button>
+                        <button class="btn-dir btn-stop" onclick="enviarComando('PARAR')">■</button>
+                        <button class="btn-dir" onmousedown="enviarComando('DIREITA')" onmouseup="enviarComando('PARAR')">▶</button>
+                        <div></div>
+                        <button class="btn-dir" onmousedown="enviarComando('RE')" onmouseup="enviarComando('PARAR')">▼</button>
+                        <div></div>
+                    </div>
+                    
+                    <div class="vertical-slider-container">
+                        <div style="color: #aaa; font-weight: bold; font-size: 9px; text-transform: uppercase;">V. Máx</div>
+                        <input type="range" id="sliderVelocidade" min="0" max="100" value="100" oninput="enviarVelocidade(this.value)">
+                        <span id="vVelocidade">100%</span>
+                    </div>
+                </div>
+                
+                <div class="servos-box">
+                    <div class="slider-container"><div class="slider-header"><label>Yaw:</label> <span id="v1">90</span>°</div><input type="range" id="sl_yaw" min="0" max="180" value="90" oninput="enviarServo('servo_yaw', this.value, 'v1')"></div>
+                    <div class="slider-container"><div class="slider-header"><label>Cotovelo:</label> <span id="v2">90</span>°</div><input type="range" id="sl_cotovelo" min="0" max="180" value="90" oninput="enviarServo('servo_cotovelo', this.value, 'v2')"></div>
+                    <div class="slider-container"><div class="slider-header"><label>Punho:</label> <span id="v3">90</span>°</div><input type="range" id="sl_punho" min="0" max="180" value="90" oninput="enviarServo('servo_punho', this.value, 'v3')"></div>
+                    <div class="slider-container"><div class="slider-header"><label>Garra:</label> <span id="v4">10</span>°</div><input type="range" id="sl_garra" min="0" max="90" value="10" oninput="enviarServo('servo_garra', this.value, 'v4')"></div>
+                </div>
+            </div>
+
+            <div class="automation-container">
+                <input type="text" id="stringAutomacao" placeholder="Ex: F2E3D1T4Y120V80" title="F=Frente, T=Trás, E=Esquerda, D=Direita, Y=Yaw, C=Cotovelo, P=Punho, G=Garra, V=Velocidade">
+                <button class="btn-automation" id="btnExecutar" onclick="executarStringAutomacao()">Enviar</button>
+                <div id="statusAutomacao">Status: Pronto</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // CONFIGURAÇÃO OFICIAL DO FIREBASE
+        const firebaseConfig = {
+            apiKey: "AIzaSyAPJOs-lOFuA0zqZrJKmdrWrSr4Vf2dNx0",
+            authDomain: "robo-webrtc-7b32b.firebaseapp.com",
+            databaseURL: "https://robo-webrtc-7b32b-default-rtdb.firebaseio.com",
+            projectId: "robo-webrtc-7b32b",
+            storageBucket: "robo-webrtc-7b32b.firebasestorage.app",
+            messagingSenderId: "488205904754",
+            appId: "1:488205904754:web:52a95187cb2896da5d8beb"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        // GERADOR DE ID DINÂMICO PARA EVITAR CONFLITOS DE SESSÃO WebRTC
+        const meuIdPainel = 'painel_' + Math.floor(Math.random() * 10000);
+        const peer = new Peer(meuIdPainel, {
+            config: { 'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' }, { 'urls': 'stun:stun1.l.google.com:19302' }] }
+        });
+
+        let idRoboAlvo = '';
+        db.ref('sistema/id_robo_ativo').on('value', (snapshot) => {
+            idRoboAlvo = snapshot.val();
+            console.log("ID do Robô detectado via Firebase:", idRoboAlvo);
+        });
+
+        // INICIALIZAÇÃO DO MAPA (LEAFLET)
+        const map = L.map('map').setView([-21.76, -43.35], 16);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        const roboMarker = L.marker([-21.76, -43.35]).addTo(map);
+
+        // FUNÇÃO DE CHAMADA WebRTC PARA VÍDEO
+        function conectarAoRobo() {
+            if(!idRoboAlvo) { alert("Telemóvel do robô não detetado na rede. Abra o index.html nele primeiro."); return; }
+            console.log("Ligando para:", idRoboAlvo);
+            const fakeCanvas = document.createElement('canvas');
+            fakeCanvas.width = fakeCanvas.height = 1;
+            const fakeStream = fakeCanvas.captureStream ? fakeCanvas.captureStream() : new MediaStream();
+
+            const call = peer.call(idRoboAlvo, fakeStream);
+            call.on('stream', (remoteStream) => {
+                document.getElementById('remoteVideo').srcObject = remoteStream;
+            });
+        }
+
+        // FUNÇÕES DE ENVIO DE COMANDOS DO USUÁRIO PARA O ROBÔ
+        function enviarComando(cmd) { db.ref('controles/movimento').set(cmd); }
+        function enviarServo(servo, valor, labelId) {
+            document.getElementById(labelId).innerText = valor;
+            db.ref('controles/' + servo).set(parseInt(valor));
+        }
+        function enviarVelocidade(valor) {
+            document.getElementById('vVelocidade').innerText = valor + '%';
+            db.ref('controles/velocidade').set(parseInt(valor));
+        }
+
+        // --- SISTEMA INTECO DE AUTOMAÇÃO POR STRING ---
+        async function executarStringAutomacao() {
+            const inputEl = document.getElementById('stringAutomacao');
+            const btnEl = document.getElementById('btnExecutar');
+            const statusEl = document.getElementById('statusAutomacao');
+            
+            let stringCmd = inputEl.value.toUpperCase().trim();
+            if (!stringCmd) return;
+
+            // Expressão regular que quebra comandos em pares de Letras e Números (Ex: F2, Y120, V80)
+            const regex = /([FTEDYCPOV])(\d+)/g;
+            let match;
+            let listaComandos = [];
+
+            while ((match = regex.exec(stringCmd)) !== null) {
+                listaComandos.push({ comando: match[1], valor: parseInt(match[2]) });
+            }
+
+            if (listaComandos.length === 0) {
+                statusEl.innerText = "Erro: String Inválida";
+                statusEl.style.color = "#d93838";
+                return;
+            }
+
+            // Trava interface durante execução
+            inputEl.disabled = true;
+            btnEl.disabled = true;
+
+            // Função auxiliar de atraso assíncrono (ms)
+            const esperar = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+            for (let i = 0; i < listaComandos.length; i++) {
+                let item = listaComandos[i];
+                statusEl.style.color = "#00ff88";
+                statusEl.innerText = `Executando: ${item.comando}${item.valor}`;
+
+                if (item.comando === 'F') {
+                    enviarComando('FRENTE');
+                    await esperar(item.valor * 1000);
+                    enviarComando('PARAR');
+                } 
+                else if (item.comando === 'T') {
+                    enviarComando('RE');
+                    await esperar(item.valor * 1000);
+                    enviarComando('PARAR');
+                } 
+                else if (item.comando === 'E') {
+                    enviarComando('ESQUERDA');
+                    await esperar(item.valor * 1000);
+                    enviarComando('PARAR');
+                } 
+                else if (item.comando === 'D') {
+                    enviarComando('DIREITA');
+                    await esperar(item.valor * 1000);
+                    enviarComando('PARAR');
+                }
+                else if (item.comando === 'Y') { // Servo Yaw
+                    document.getElementById('sl_yaw').value = item.valor;
+                    enviarServo('servo_yaw', item.valor, 'v1');
+                    await esperar(150); // Pequena pausa para processamento físico do servo
+                }
+                else if (item.comando === 'C') { // Servo Cotovelo
+                    document.getElementById('sl_cotovelo').value = item.valor;
+                    enviarServo('servo_cotovelo', item.valor, 'v2');
+                    await esperar(150);
+                }
+                else if (item.comando === 'P') { // Servo Punho
+                    document.getElementById('sl_punho').value = item.valor;
+                    enviarServo('servo_punho', item.valor, 'v3');
+                    await esperar(150);
+                }
+                else if (item.comando === 'G') { // Servo Garra
+                    document.getElementById('sl_garra').value = item.valor;
+                    enviarServo('servo_garra', item.valor, 'v4');
+                    await esperar(150);
+                }
+                else if (item.comando === 'V') { // Velocidade Máxima
+                    document.getElementById('sliderVelocidade').value = item.valor;
+                    enviarVelocidade(item.valor);
+                    await esperar(100);
+                }
+                
+                // Pequena pausa de 200ms entre ações consecutivas para estabilidade de relés/comunicação
+                await esperar(200);
+            }
+
+            // Restaura interface
+            statusEl.innerText = "Status: Concluído";
+            inputEl.disabled = false;
+            btnEl.disabled = false;
+            inputEl.value = ""; // Limpa o campo
+        }
+
+        // RECEBIMENTO DA TELEMETRIA REAL DO SMARTPHONE (BÚSSOLA E GPS)
+        db.ref('telemetria').on('value', (snapshot) => {
+            const data = snapshot.val();
+            if (data) {
+                if (data.bussula !== undefined && data.bussula !== null) {
+                    const angulo = data.bussula;
+                    const txtGraus = document.getElementById('numBussula');
+                    if (txtGraus) txtGraus.innerText = Math.round(angulo);
+                    
+                    const bussolaGf = document.getElementById('compassSvg');
+                    if (bussolaGf) {
+                        bussolaGf.style.transform = `rotate(${-angulo}deg)`;
+                    }
+                }
+
+                if (data.lat !== undefined && data.lat !== null && data.lng !== undefined && data.lng !== null) {
+                    const novaLat = parseFloat(data.lat);
+                    const novaLng = parseFloat(data.lng);
+
+                    if (!isNaN(novaLat) && !isNaN(novaLng)) {
+                        const txtGeo = document.getElementById('geoCoord');
+                        if (txtGeo) txtGeo.innerText = `Lat: ${novaLat.toFixed(5)}, Lng: ${novaLng.toFixed(5)}`;
+
+                        if (typeof roboMarker !== 'undefined') {
+                            roboMarker.setLatLng([novaLat, novaLng]);
+                        }
+                        if (typeof map !== 'undefined') {
+                            map.panTo([novaLat, novaLng]);
+                        }
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>
