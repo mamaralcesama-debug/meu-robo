@@ -118,7 +118,7 @@
         </div>
     </div>
 
-    <script>
+   <script>
         const firebaseConfig = {
             apiKey: "AIzaSyAPJOs-lOFuA0zqZrJKmdrWrSr4Vf2dNx0",
             authDomain: "robo-webrtc-7b32b.firebaseapp.com",
@@ -160,44 +160,27 @@
         }
 
         // ====================================================================
-        // 🚀 SISTEMA DE PULSAÇÃO HIGIENIZADA (COMPATÍVEL COM APP INVENTOR)
+        // 🚀 ENGINE DE SINAL DE VIDA LEVE (SEM SOBRECARGA DO APP INVENTOR)
         // ====================================================================
-        let intervaloHeartbeatMotores = null;
-        let comandoMotorAtivo = "PARAR";
+        let comandoAtualUnico = "PARAR";
+
+        // Inicia um batimento lento de segurança a cada 1.5s apenas para a ESP não desligar por falta de internet
+        setInterval(() => {
+            db.ref('controles/movimento').set("VIVO_" + Date.now());
+        }, 1500);
 
         function iniciarPulsoMotor(comando) {
-            if (intervaloHeartbeatMotores && comandoMotorAtivo === comando) return;
-            if (intervaloHeartbeatMotores) clearInterval(intervaloHeartbeatMotores);
-            
-            comandoMotorAtivo = comando;
-            dispararPulsoMecanico(); 
-            
-            // Dispara a cada 150ms para manter a ESP32 alimentada dentro dos 500ms
-            intervaloHeartbeatMotores = setInterval(() => {
-                dispararPulsoMecanico();
-            }, 150); 
-        }
-
-        function dispararPulsoMecanico() {
-            // Envia o comando LIMPO para não quebrar o App Inventor
-            enviarComando(comandoMotorAtivo);
-            
-            // Envia um valor alternante em OUTRO nó do Firebase apenas para forçar a atualização da rede
-            if (comandoMotorAtivo !== "PARAR") {
-                db.ref('controles/pulso').set(Date.now());
-            }
+            if (comandoAtualUnico === comando) return;
+            comandoAtualUnico = comando;
+            // Envia um único comando limpo. A ESP32 assume a continuidade de forma estável.
+            db.ref('controles/movimento').set(comando);
         }
 
         function pararPulsoMotor() {
-            if (intervaloHeartbeatMotores) {
-                clearInterval(intervaloHeartbeatMotores);
-                intervaloHeartbeatMotores = null;
-            }
-            comandoMotorAtivo = "PARAR";
-            enviarComando("PARAR");
+            comandoAtualUnico = "PARAR";
+            db.ref('controles/movimento').set("PARAR");
         }
 
-        function enviarComando(cmd) { db.ref('controles/movimento').set(cmd); }
         function enviarServo(servo, valor, labelId) {
             document.getElementById(labelId).innerText = valor;
             db.ref('controles/' + servo).set(parseInt(valor));
