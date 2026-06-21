@@ -143,7 +143,7 @@
         });
 
         const map = L.map('map').setView([-21.76, -43.35], 16);
-        L.tileLayer('https://{s}.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
         const roboMarker = L.marker([-21.76, -43.35]).addTo(map);
 
         function conectarAoRobo() {
@@ -160,7 +160,7 @@
         }
 
         // ====================================================================
-        // 🚀 SISTEMA DE PULSAÇÃO MECÂNICA COM TIMESTAMPS (ANTI-DEDUPLICAÇÃO)
+        // 🚀 SISTEMA DE PULSAÇÃO HIGIENIZADA (COMPATÍVEL COM APP INVENTOR)
         // ====================================================================
         let intervaloHeartbeatMotores = null;
         let comandoMotorAtivo = "PARAR";
@@ -172,18 +172,19 @@
             comandoMotorAtivo = comando;
             dispararPulsoMecanico(); 
             
-            // Intervalo de 150ms garante folga no limite de 500ms da ESP32
+            // Dispara a cada 150ms para manter a ESP32 alimentada dentro dos 500ms
             intervaloHeartbeatMotores = setInterval(() => {
                 dispararPulsoMecanico();
             }, 150); 
         }
 
         function dispararPulsoMecanico() {
-            if (comandoMotorAtivo === "PARAR") {
-                enviarComando("PARAR");
-            } else {
-                const tStamp = Date.now();
-                enviarComando(`${comandoMotorAtivo}_${tStamp}`);
+            // Envia o comando LIMPO para não quebrar o App Inventor
+            enviarComando(comandoMotorAtivo);
+            
+            // Envia um valor alternante em OUTRO nó do Firebase apenas para forçar a atualização da rede
+            if (comandoMotorAtivo !== "PARAR") {
+                db.ref('controles/pulso').set(Date.now());
             }
         }
 
@@ -314,7 +315,7 @@
                 else if (item.comando === 'C') { 
                     document.getElementById('sl_cotovelo').value = item.valor;
                     enviarServo('servo_cotovelo', item.valor, 'v2');
-                    await Patternesperar(1500); 
+                    await esperar(1500); 
                 }
                 else if (item.comando === 'P') { 
                     document.getElementById('sl_punho').value = item.valor;
@@ -348,7 +349,6 @@
                     const angulo = data.bussula;
                     const txtGraus = document.getElementById('numBussula');
                     if (txtGraus) txtGraus.innerText = Math.round(angulo);
-                    
                     const bussolaGf = document.getElementById('compassSvg');
                     if (bussolaGf) bussolaGf.style.transform = `rotate(${-angulo}deg)`;
                 }
@@ -366,5 +366,3 @@
             }
         });
     </script>
-</body>
-</html>
