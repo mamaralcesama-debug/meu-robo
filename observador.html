@@ -19,23 +19,23 @@
         #right-screen { background: #222; }
         .quadrant { height: 50%; padding: 20px; }
         .quadrant-top { border-bottom: 2px solid #333; display: flex; gap: 15px; }
-        .quadrant-bottom { background: #1e1e1e; }
-        h3 { margin-bottom: 15px; text-transform: uppercase; font-size: 13px; color: #00ff88; border-bottom: 1px solid #444; padding-bottom: 5px; }
+        .quadrant-bottom { background: #1e1e1e; display: flex; flex-direction: column; justify-content: space-between; }
+        h3 { margin-bottom: 10px; text-transform: uppercase; font-size: 13px; color: #00ff88; border-bottom: 1px solid #444; padding-bottom: 5px; }
         .map-wrapper { flex: 2; height: 85%; background: #000; border-radius: 8px; overflow: hidden; }
         #map { width: 100%; height: 100%; }
         .compass-wrapper { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #2b2b2b; border-radius: 8px; height: 85%; }
         .compass-graphic { width: 100px; height: 100px; }
         .compass-pointer { width: 100%; height: 100%; transition: transform 0.2s ease-out; }
-        .controls-layout { display: flex; gap: 20px; height: 85%; }
+        .controls-layout { display: flex; gap: 20px; height: 70%; }
         
         /* Ajuste do bloco de movimento para comportar o slider vertical lado a lado */
         .movement-box { flex: 1.2; display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 20px; background: #232323; border-radius: 8px; padding: 10px; }
         .control-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; width: 180px; }
-        .btn-dir { padding: 18px; background: #3a3a3a; color: #fff; border: none; cursor: pointer; font-size: 16px; border-radius: 8px; }
+        .btn-dir { padding: 18px; background: #3a3a3a; color: #fff; border: none; cursor: pointer; font-size: 16px; border-radius: 8px; outline: none; -webkit-user-select: none; user-select: none; }
         .btn-dir:active { background: #00ff88; color: #111; }
         .btn-stop { background: #d93838; }
         
-        /* Estilização do novo Slider Vertical de Velocidade Máxima */
+        /* Estilização do Slider Vertical de Velocidade Máxima */
         .vertical-slider-container { display: flex; flex-direction: column; align-items: center; height: 140px; justify-content: space-between; font-size: 11px; background: #2b2b2b; padding: 8px; border-radius: 6px; width: 55px; }
         .vertical-slider-container input[type="range"] { -webkit-appearance: none; appearance: none; width: 6px; height: 85px; background: #444; border-radius: 3px; outline: none; writing-mode: vertical-lr; direction: rtl; }
         .vertical-slider-container input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #00ff88; cursor: pointer; box-shadow: 0 0 4px #000; }
@@ -47,6 +47,14 @@
         .slider-header { display: flex; justify-content: space-between; }
         .slider-header span { color: #00ff88; font-weight: bold; }
         input[type="range"] { width: 100%; accent-color: #00ff88; }
+
+        /* Novo Container de Automação por String */
+        .automation-container { display: flex; gap: 10px; background: #232323; padding: 10px; border-radius: 8px; margin-top: 10px; align-items: center; }
+        .automation-container input[type="text"] { flex: 1; padding: 10px; background: #111; border: 1px solid #444; color: #00ff88; font-weight: bold; font-family: monospace; border-radius: 5px; font-size: 14px; text-transform: uppercase; outline: none; }
+        .automation-container input[type="text"]:focus { border-color: #00ff88; }
+        .btn-automation { padding: 10px 20px; background: #00ff88; color: #111; font-weight: bold; border: none; border-radius: 5px; cursor: pointer; text-transform: uppercase; font-size: 12px; }
+        .btn-automation:disabled { background: #555; color: #aaa; cursor: not-allowed; }
+        #statusAutomacao { font-size: 11px; color: #aaa; min-width: 120px; text-align: right; font-family: monospace; }
     </style>
 </head>
 <body>
@@ -80,29 +88,35 @@
                 <div class="movement-box">
                     <div class="control-grid">
                         <div></div>
-                        <button class="btn-dir" onmousedown="enviarComando('FRENTE')" onmouseup="enviarComando('PARAR')">▲</button>
+                        <button class="btn-dir" onmousedown="iniciarPulsoMotor('FRENTE')" onmouseup="pararPulsoMotor()" ontouchstart="iniciarPulsoMotor('FRENTE')" ontouchend="pararPulsoMotor()">▲</button>
                         <div></div>
-                        <button class="btn-dir" onmousedown="enviarComando('ESQUERDA')" onmouseup="enviarComando('PARAR')">◀</button>
-                        <button class="btn-dir btn-stop" onclick="enviarComando('PARAR')">■</button>
-                        <button class="btn-dir" onmousedown="enviarComando('DIREITA')" onmouseup="enviarComando('PARAR')">▶</button>
+                        <button class="btn-dir" onmousedown="iniciarPulsoMotor('ESQUERDA')" onmouseup="pararPulsoMotor()" ontouchstart="iniciarPulsoMotor('ESQUERDA')" ontouchend="pararPulsoMotor()">◀</button>
+                        <button class="btn-dir btn-stop" onclick="pararPulsoMotor()">■</button>
+                        <button class="btn-dir" onmousedown="iniciarPulsoMotor('DIREITA')" onmouseup="pararPulsoMotor()" ontouchstart="iniciarPulsoMotor('DIREITA')" ontouchend="pararPulsoMotor()">▶</button>
                         <div></div>
-                        <button class="btn-dir" onmousedown="enviarComando('RE')" onmouseup="enviarComando('PARAR')">▼</button>
+                        <button class="btn-dir" onmousedown="iniciarPulsoMotor('RE')" onmouseup="pararPulsoMotor()" ontouchstart="iniciarPulsoMotor('RE')" ontouchend="pararPulsoMotor()">▼</button>
                         <div></div>
                     </div>
                     
                     <div class="vertical-slider-container">
                         <div style="color: #aaa; font-weight: bold; font-size: 9px; text-transform: uppercase;">V. Máx</div>
-                        <input type="range" min="0" max="100" value="100" oninput="enviarVelocidade(this.value)">
+                        <input type="range" id="sliderVelocidade" min="0" max="100" value="100" oninput="enviarVelocidade(this.value)">
                         <span id="vVelocidade">100%</span>
                     </div>
                 </div>
                 
                 <div class="servos-box">
-                    <div class="slider-container"><div class="slider-header"><label>Yaw:</label> <span id="v1">90</span>°</div><input type="range" min="0" max="180" value="90" oninput="enviarServo('servo_yaw', this.value, 'v1')"></div>
-                    <div class="slider-container"><div class="slider-header"><label>Cotovelo:</label> <span id="v2">90</span>°</div><input type="range" min="0" max="180" value="90" oninput="enviarServo('servo_cotovelo', this.value, 'v2')"></div>
-                    <div class="slider-container"><div class="slider-header"><label>Punho:</label> <span id="v3">90</span>°</div><input type="range" min="0" max="180" value="90" oninput="enviarServo('servo_punho', this.value, 'v3')"></div>
-                    <div class="slider-container"><div class="slider-header"><label>Garra:</label> <span id="v4">10</span>°</div><input type="range" min="0" max="90" value="10" oninput="enviarServo('servo_garra', this.value, 'v4')"></div>
+                    <div class="slider-container"><div class="slider-header"><label>Yaw:</label> <span id="v1">90</span>°</div><input type="range" id="sl_yaw" min="0" max="180" value="90" oninput="enviarServo('servo_yaw', this.value, 'v1')"></div>
+                    <div class="slider-container"><div class="slider-header"><label>Cotovelo:</label> <span id="v2">90</span>°</div><input type="range" id="sl_cotovelo" min="0" max="180" value="90" oninput="enviarServo('servo_cotovelo', this.value, 'v2')"></div>
+                    <div class="slider-container"><div class="slider-header"><label>Punho:</label> <span id="v3">90</span>°</div><input type="range" id="sl_punho" min="0" max="180" value="90" oninput="enviarServo('servo_punho', this.value, 'v3')"></div>
+                    <div class="slider-container"><div class="slider-header"><label>Garra:</label> <span id="v4">10</span>°</div><input type="range" id="sl_garra" min="0" max="90" value="10" oninput="enviarServo('servo_garra', this.value, 'v4')"></div>
                 </div>
+            </div>
+
+            <div class="automation-container">
+                <input type="text" id="stringAutomacao" placeholder="Ex: F2E3D1T4Y120V80" title="F=Frente, T=Trás, E=Esquerda, D=Direita, Y=Yaw, C=Cotovelo, P=Punho, G=Garra, V=Velocidade">
+                <button class="btn-automation" id="btnExecutar" onclick="executarStringAutomacao()">Enviar</button>
+                <div id="statusAutomacao">Status: Pronto</div>
             </div>
         </div>
     </div>
@@ -128,7 +142,6 @@
         });
 
         let idRoboAlvo = '';
-        // Escuta dinamicamente o ID gerado pelo telemóvel do robô
         db.ref('sistema/id_robo_ativo').on('value', (snapshot) => {
             idRoboAlvo = snapshot.val();
             console.log("ID do Robô detectado via Firebase:", idRoboAlvo);
@@ -142,7 +155,6 @@
         // FUNÇÃO DE CHAMADA WebRTC PARA VÍDEO
         function conectarAoRobo() {
             if(!idRoboAlvo) { alert("Telemóvel do robô não detetado na rede. Abra o index.html nele primeiro."); return; }
-            
             console.log("Ligando para:", idRoboAlvo);
             const fakeCanvas = document.createElement('canvas');
             fakeCanvas.width = fakeCanvas.height = 1;
@@ -154,56 +166,215 @@
             });
         }
 
-        // FUNÇÕES DE ENVIO DE COMANDOS DO USUÁRIO PARA O ROBÔ
+        // ====================================================================
+        // 🚀 SISTEMA DE PULSAÇÃO MECÂNICA (HEARTBEAT COCKPIT)
+        // ====================================================================
+        let intervaloHeartbeatMotores = null;
+        let comandoMotorAtivo = "PARAR";
+
+        function iniciarPulsoMotor(comando) {
+            if (intervaloHeartbeatMotores) clearInterval(intervaloHeartbeatMotores);
+            
+            comandoMotorAtivo = comando;
+            enviarComando(comandoMotorAtivo); // Envia imediatamente o primeiro frame de pulso
+            
+            // Fica bombardeando o Firebase a cada 200ms para manter o cão de guarda da ESP32 feliz
+            intervaloHeartbeatMotores = setInterval(() => {
+                enviarComando(comandoMotorAtivo);
+            }, 200);
+        }
+
+        function pararPulsoMotor() {
+            if (intervaloHeartbeatMotores) {
+                clearInterval(intervaloHeartbeatMotores);
+                intervaloHeartbeatMotores = null;
+            }
+            comandoMotorAtivo = "PARAR";
+            enviarComando("PARAR");
+        }
+
         function enviarComando(cmd) { db.ref('controles/movimento').set(cmd); }
         function enviarServo(servo, valor, labelId) {
             document.getElementById(labelId).innerText = valor;
             db.ref('controles/' + servo).set(parseInt(valor));
         }
-        
-        // Nova função que envia a velocidade máxima (0-100%) para o nó do Firebase
         function enviarVelocidade(valor) {
             document.getElementById('vVelocidade').innerText = valor + '%';
             db.ref('controles/velocidade').set(parseInt(valor));
+        }
+
+        // ====================================================================
+        // ⌨️ CONTROLE COMPLETO POR TECLADO (DIRECIONAIS / WASD)
+        // ====================================================================
+        const teclasStatus = {
+            "ArrowUp":    { ativa: false, comando: "FRENTE" },
+            "ArrowDown":  { ativa: false, comando: "RE" },
+            "ArrowLeft":  { ativa: false, comando: "ESQUERDA" },
+            "ArrowRight": { ativa: false, comando: "DIREITA" },
+            "w":          { ativa: false, comando: "FRENTE" },
+            "s":          { ativa: false, comando: "RE" },
+            "a":          { ativa: false, comando: "ESQUERDA" },
+            "d":          { ativa: false, comando: "DIREITA" },
+            "W":          { ativa: false, comando: "FRENTE" },
+            "S":          { ativa: false, comando: "RE" },
+            "A":          { ativa: false, comando: "ESQUERDA" },
+            "D":          { ativa: false, comando: "DIREITA" }
+        };
+
+        window.addEventListener("keydown", function(evento) {
+            const tecla = evento.key;
+            
+            if (teclasStatus[tecla]) {
+                // Se o operador estiver digitando comandos na caixa de texto, ignora o teclado físico de direção
+                if (document.activeElement === document.getElementById('stringAutomacao')) {
+                    return;
+                }
+                
+                evento.preventDefault(); // Impede a rolagem estrutural da tela pelas setas
+                
+                // Se a tecla correspondente ainda não estiver travada como ativa, dispara o pulso estável
+                if (!teclasStatus[tecla].ativa) {
+                    // Reseta status redundantes anteriores por segurança mecânica
+                    for (let t in teclasStatus) { teclasStatus[t].ativa = false; }
+                    
+                    teclasStatus[tecla].ativa = true;
+                    iniciarPulsoMotor(teclasStatus[tecla].comando);
+                }
+            }
+        });
+
+        window.addEventListener("keyup", function(evento) {
+            const tecla = evento.key;
+            if (teclasStatus[tecla] && teclasStatus[tecla].ativa) {
+                evento.preventDefault();
+                teclasStatus[tecla].ativa = false;
+                pararPulsoMotor(); // Corta imediatamente a emissão do pulso, acionando o freio
+            }
+        });
+
+        // ====================================================================
+        // 🤖 MOTOR DE COMPILAÇÃO E EXECUÇÃO DE STRING DE AUTOMAÇÃO
+        // ====================================================================
+        async function ejecutarStringAutomacao() {
+            const inputEl = document.getElementById('stringAutomacao');
+            const btnEl = document.getElementById('btnExecutar');
+            const statusEl = document.getElementById('statusAutomacao');
+            
+            let stringCmd = inputEl.value.toUpperCase().trim();
+            if (!stringCmd) return;
+
+            // Expressão regular atualizada incluindo suporte ao 'G' da garra robótica
+            const regex = /([FTEDYCPOVGA])(\d+)/g; 
+            let match;
+            let listaComandos = [];
+
+            while ((match = regex.exec(stringCmd)) !== null) {
+                let cmdLetra = match[1];
+                // Compatibilidade caso usem 'A' no lugar de 'G' (Tratado como garra)
+                if (cmdLetra === 'A') cmdLetra = 'G'; 
+                listaComandos.push({ comando: cmdLetra, valor: parseInt(match[2]) });
+            }
+
+            if (listaComandos.length === 0) {
+                statusEl.innerText = "Erro: String Inválida";
+                statusEl.style.color = "#d93838";
+                return;
+            }
+
+            // Bloqueia inputs do cockpit durante execução da macro
+            inputEl.disabled = true;
+            btnEl.disabled = true;
+
+            const esperar = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+            for (let i = 0; i < listaComandos.length; i++) {
+                let item = listaComandos[i];
+                statusEl.style.color = "#00ff88";
+                statusEl.innerText = `Executando: ${item.comando}${item.valor}`;
+
+                // --- PROCESSADOR DE TRAÇÃO EM MACRO (RODA SOB O HEARTBEAT SEGURO) ---
+                if (item.comando === 'F') {
+                    iniciarPulsoMotor('FRENTE');
+                    await esperar(item.valor * 1000);
+                    pararPulsoMotor();
+                } 
+                else if (item.comando === 'T') {
+                    iniciarPulsoMotor('RE');
+                    await esperar(item.valor * 1000);
+                    pararPulsoMotor();
+                } 
+                else if (item.comando === 'E') {
+                    iniciarPulsoMotor('ESQUERDA');
+                    await esperar(item.valor * 1000);
+                    pararPulsoMotor();
+                } 
+                else if (item.comando === 'D') {
+                    iniciarPulsoMotor('DIREITA');
+                    await esperar(item.valor * 1000);
+                    pararPulsoMotor();
+                }
+                // --- ATUADORES DO BRAÇO ROBÓTICO (TEMPO SEGURO DE ACOPLAMENTO MECÂNICO: 1500ms) ---
+                else if (item.comando === 'Y') { 
+                    document.getElementById('sl_yaw').value = item.valor;
+                    enviarServo('servo_yaw', item.valor, 'v1');
+                    await esperar(1500); 
+                }
+                else if (item.comando === 'C') { 
+                    document.getElementById('sl_cotovelo').value = item.valor;
+                    enviarServo('servo_cotovelo', item.valor, 'v2');
+                    await esperar(1500); 
+                }
+                else if (item.comando === 'P') { 
+                    document.getElementById('sl_punho').value = item.valor;
+                    enviarServo('servo_punho', item.valor, 'v3');
+                    await esperar(1500); 
+                }
+                else if (item.comando === 'G') { 
+                    document.getElementById('sl_garra').value = item.valor;
+                    enviarServo('servo_garra', item.valor, 'v4');
+                    await esperar(1500); 
+                }
+                else if (item.comando === 'V') { 
+                    document.getElementById('sliderVelocidade').value = item.valor;
+                    enviarVelocidade(item.valor);
+                    await esperar(300); 
+                }
+                
+                await esperar(200); // Respiro de barramento
+            }
+
+            statusEl.innerText = "Status: Concluído";
+            inputEl.disabled = false;
+            btnEl.disabled = false;
+            inputEl.value = ""; 
         }
 
         // RECEBIMENTO DA TELEMETRIA REAL DO SMARTPHONE (BÚSSOLA E GPS)
         db.ref('telemetria').on('value', (snapshot) => {
             const data = snapshot.val();
             if (data) {
-                // 1. ATUALIZAÇÃO DA BÚSSOLA
                 if (data.bussula !== undefined && data.bussula !== null) {
                     const angulo = data.bussula;
-                    
-                    // Atualiza o texto em graus
                     const txtGraus = document.getElementById('numBussula');
                     if (txtGraus) txtGraus.innerText = Math.round(angulo);
                     
-                    // Rotaciona o SVG da Bússola
                     const bussolaGf = document.getElementById('compassSvg');
                     if (bussolaGf) {
                         bussolaGf.style.transform = `rotate(${-angulo}deg)`;
                     }
                 }
 
-                // 2. ATUALIZAÇÃO DO MAPA (GPS) - Com validação dupla de segurança
                 if (data.lat !== undefined && data.lat !== null && data.lng !== undefined && data.lng !== null) {
                     const novaLat = parseFloat(data.lat);
                     const novaLng = parseFloat(data.lng);
 
-                    // Só executa se os dois forem números válidos (não resultaram em NaN)
                     if (!isNaN(novaLat) && !isNaN(novaLng)) {
-                        
-                        // Atualiza o texto das coordenadas abaixo da bússola
                         const txtGeo = document.getElementById('geoCoord');
                         if (txtGeo) txtGeo.innerText = `Lat: ${novaLat.toFixed(5)}, Lng: ${novaLng.toFixed(5)}`;
 
-                        // Move o marcador vermelho do robô no mapa para a nova posição
                         if (typeof roboMarker !== 'undefined') {
                             roboMarker.setLatLng([novaLat, novaLng]);
                         }
-                        
-                        // Centraliza o mapa suavemente na nova coordenada do robô
                         if (typeof map !== 'undefined') {
                             map.panTo([novaLat, novaLng]);
                         }
