@@ -28,14 +28,12 @@
         .compass-pointer { width: 100%; height: 100%; transition: transform 0.2s ease-out; }
         .controls-layout { display: flex; gap: 20px; height: 70%; }
         
-        /* Ajuste do bloco de movimento para comportar o slider vertical lado a lado */
         .movement-box { flex: 1.2; display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 20px; background: #232323; border-radius: 8px; padding: 10px; }
         .control-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; width: 180px; }
         .btn-dir { padding: 18px; background: #3a3a3a; color: #fff; border: none; cursor: pointer; font-size: 16px; border-radius: 8px; outline: none; -webkit-user-select: none; user-select: none; }
         .btn-dir:active { background: #00ff88; color: #111; }
         .btn-stop { background: #d93838; }
         
-        /* Estilização do Slider Vertical de Velocidade Máxima */
         .vertical-slider-container { display: flex; flex-direction: column; align-items: center; height: 140px; justify-content: space-between; font-size: 11px; background: #2b2b2b; padding: 8px; border-radius: 6px; width: 55px; }
         .vertical-slider-container input[type="range"] { -webkit-appearance: none; appearance: none; width: 6px; height: 85px; background: #444; border-radius: 3px; outline: none; writing-mode: vertical-lr; direction: rtl; }
         .vertical-slider-container input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #00ff88; cursor: pointer; box-shadow: 0 0 4px #000; }
@@ -48,7 +46,6 @@
         .slider-header span { color: #00ff88; font-weight: bold; }
         input[type="range"] { width: 100%; accent-color: #00ff88; }
 
-        /* Novo Container de Automação por String */
         .automation-container { display: flex; gap: 10px; background: #232323; padding: 10px; border-radius: 8px; margin-top: 10px; align-items: center; }
         .automation-container input[type="text"] { flex: 1; padding: 10px; background: #111; border: 1px solid #444; color: #00ff88; font-weight: bold; font-family: monospace; border-radius: 5px; font-size: 14px; text-transform: uppercase; outline: none; }
         .automation-container input[type="text"]:focus { border-color: #00ff88; }
@@ -122,7 +119,6 @@
     </div>
 
     <script>
-        // CONFIGURAÇÃO OFICIAL DO FIREBASE
         const firebaseConfig = {
             apiKey: "AIzaSyAPJOs-lOFuA0zqZrJKmdrWrSr4Vf2dNx0",
             authDomain: "robo-webrtc-7b32b.firebaseapp.com",
@@ -135,7 +131,6 @@
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
 
-        // GERADOR DE ID DINÂMICO PARA EVITAR CONFLITOS DE SESSÃO WebRTC
         const meuIdPainel = 'painel_' + Math.floor(Math.random() * 10000);
         const peer = new Peer(meuIdPainel, {
             config: { 'iceServers': [{ 'urls': 'stun:stun.l.google.com:19302' }, { 'urls': 'stun:stun1.l.google.com:19302' }] }
@@ -147,12 +142,10 @@
             console.log("ID do Robô detectado via Firebase:", idRoboAlvo);
         });
 
-        // INICIALIZAÇÃO DO MAPA (LEAFLET)
         const map = L.map('map').setView([-21.76, -43.35], 16);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
         const roboMarker = L.marker([-21.76, -43.35]).addTo(map);
 
-        // FUNÇÃO DE CHAMADA WebRTC PARA VÍDEO
         function conectarAoRobo() {
             if(!idRoboAlvo) { alert("Telemóvel do robô não detetado na rede. Abra o index.html nele primeiro."); return; }
             console.log("Ligando para:", idRoboAlvo);
@@ -173,12 +166,14 @@
         let comandoMotorAtivo = "PARAR";
 
         function iniciarPulsoMotor(comando) {
+            // Se já estiver rodando o mesmo comando, ignora para não reiniciar o timer
+            if (intervaloHeartbeatMotores && comandoMotorAtivo === comando) return;
+            
             if (intervaloHeartbeatMotores) clearInterval(intervaloHeartbeatMotores);
             
             comandoMotorAtivo = comando;
-            enviarComando(comandoMotorAtivo); // Envia imediatamente o primeiro frame de pulso
+            enviarComando(comandoMotorAtivo); 
             
-            // Fica bombardeando o Firebase a cada 200ms para manter o cão de guarda da ESP32 feliz
             intervaloHeartbeatMotores = setInterval(() => {
                 enviarComando(comandoMotorAtivo);
             }, 200);
@@ -204,7 +199,7 @@
         }
 
         // ====================================================================
-        // ⌨️ CONTROLE COMPLETO POR TECLADO (DIRECIONAIS / WASD)
+        // ⌨️ CONTROLE COMPLETO POR TECLADO COGNITIVO (TRAVA TOTAL DIGITAÇÃO)
         // ====================================================================
         const teclasStatus = {
             "ArrowUp":    { ativa: false, comando: "FRENTE" },
@@ -222,21 +217,17 @@
         };
 
         window.addEventListener("keydown", function(evento) {
+            // SE ESTIVER COM O CURSOR NA CAIXA DE TEXTO, IGNORA TOTALMENTE O TECLADO
+            if (document.activeElement === document.getElementById('stringAutomacao')) {
+                return; 
+            }
+
             const tecla = evento.key;
-            
             if (teclasStatus[tecla]) {
-                // Se o operador estiver digitando comandos na caixa de texto, ignora o teclado físico de direção
-                if (document.activeElement === document.getElementById('stringAutomacao')) {
-                    return;
-                }
+                evento.preventDefault(); 
                 
-                evento.preventDefault(); // Impede a rolagem estrutural da tela pelas setas
-                
-                // Se a tecla correspondente ainda não estiver travada como ativa, dispara o pulso estável
                 if (!teclasStatus[tecla].ativa) {
-                    // Reseta status redundantes anteriores por segurança mecânica
                     for (let t in teclasStatus) { teclasStatus[t].ativa = false; }
-                    
                     teclasStatus[tecla].ativa = true;
                     iniciarPulsoMotor(teclasStatus[tecla].comando);
                 }
@@ -244,18 +235,23 @@
         });
 
         window.addEventListener("keyup", function(evento) {
+            // SE ESTIVER COM O CURSOR NA CAIXA DE TEXTO, NÃO ENVIA PARAR DE FORMA ALGUMA!
+            if (document.activeElement === document.getElementById('stringAutomacao')) {
+                return; 
+            }
+
             const tecla = evento.key;
             if (teclasStatus[tecla] && teclasStatus[tecla].ativa) {
                 evento.preventDefault();
                 teclasStatus[tecla].ativa = false;
-                pararPulsoMotor(); // Corta imediatamente a emissão do pulso, acionando o freio
+                pararPulsoMotor(); 
             }
         });
 
         // ====================================================================
         // 🤖 MOTOR DE COMPILAÇÃO E EXECUÇÃO DE STRING DE AUTOMAÇÃO
         // ====================================================================
-        async function ejecutarStringAutomacao() {
+        async function executarStringAutomacao() {
             const inputEl = document.getElementById('stringAutomacao');
             const btnEl = document.getElementById('btnExecutar');
             const statusEl = document.getElementById('statusAutomacao');
@@ -263,14 +259,12 @@
             let stringCmd = inputEl.value.toUpperCase().trim();
             if (!stringCmd) return;
 
-            // Expressão regular atualizada incluindo suporte ao 'G' da garra robótica
             const regex = /([FTEDYCPOVGA])(\d+)/g; 
             let match;
             let listaComandos = [];
 
             while ((match = regex.exec(stringCmd)) !== null) {
                 let cmdLetra = match[1];
-                // Compatibilidade caso usem 'A' no lugar de 'G' (Tratado como garra)
                 if (cmdLetra === 'A') cmdLetra = 'G'; 
                 listaComandos.push({ comando: cmdLetra, valor: parseInt(match[2]) });
             }
@@ -281,7 +275,6 @@
                 return;
             }
 
-            // Bloqueia inputs do cockpit durante execução da macro
             inputEl.disabled = true;
             btnEl.disabled = true;
 
@@ -292,7 +285,6 @@
                 statusEl.style.color = "#00ff88";
                 statusEl.innerText = `Executando: ${item.comando}${item.valor}`;
 
-                // --- PROCESSADOR DE TRAÇÃO EM MACRO (RODA SOB O HEARTBEAT SEGURO) ---
                 if (item.comando === 'F') {
                     iniciarPulsoMotor('FRENTE');
                     await esperar(item.valor * 1000);
@@ -313,7 +305,6 @@
                     await esperar(item.valor * 1000);
                     pararPulsoMotor();
                 }
-                // --- ATUADORES DO BRAÇO ROBÓTICO (TEMPO SEGURO DE ACOPLAMENTO MECÂNICO: 1500ms) ---
                 else if (item.comando === 'Y') { 
                     document.getElementById('sl_yaw').value = item.valor;
                     enviarServo('servo_yaw', item.valor, 'v1');
@@ -340,7 +331,7 @@
                     await esperar(300); 
                 }
                 
-                await esperar(200); // Respiro de barramento
+                await esperar(200); 
             }
 
             statusEl.innerText = "Status: Concluído";
@@ -349,7 +340,6 @@
             inputEl.value = ""; 
         }
 
-        // RECEBIMENTO DA TELEMETRIA REAL DO SMARTPHONE (BÚSSOLA E GPS)
         db.ref('telemetria').on('value', (snapshot) => {
             const data = snapshot.val();
             if (data) {
