@@ -7,7 +7,14 @@
     <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-database-compat.js"></script>
     <script>
         let bleChar;
-        const db = firebase.initializeApp({ /* INSIRA AQUI O MESMO OBJETO DO FIREBASE */ }).database();
+        const db = firebase.initializeApp({ 
+            apiKey: "AIzaSyAPJOs-lOFuA0zqZrJKmdrWrSr4Vf2dNx0",
+            authDomain: "robo-webrtc-7b32b.firebaseapp.com",
+            databaseURL: "https://robo-webrtc-7b32b-default-rtdb.firebaseio.com",
+            projectId: "robo-webrtc-7b32b",
+            storageBucket: "robo-webrtc-7b32b.firebasestorage.app",
+            messagingSenderId: "488205904754",
+            appId: "1:488205904754:web:52a95187cb2896da5d8beb" }).database();
 
         document.getElementById('btnConnect').onclick = async () => {
             const device = await navigator.bluetooth.requestDevice({
