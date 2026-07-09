@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Controle PC Drone</title>
+</head>
+<body>
+    <h1>Controle Remoto (PC)</h1>
+    <p>Conecte o Joystick e mova os eixos.</p>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-database-compat.js"></script>
+    <script>
+        const firebaseConfig = { /* INSIRA AQUI SEU OBJETO DE CONFIGURAÇÃO DO FIREBASE */ };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.database();
+
+        function loop() {
+            const gp = navigator.getGamepads()[0];
+            if (gp) {
+                // Mapeamento: eixos 0,1,2,3 e botões 0 e 1 para modo e failsafe
+                const dados = {
+                    roll: gp.axes[0].toFixed(2),
+                    pitch: gp.axes[1].toFixed(2),
+                    throttle: gp.axes[2].toFixed(2),
+                    yaw: gp.axes[3].toFixed(2),
+                    mode: gp.buttons[0].pressed ? 1 : 0,
+                    fs: gp.buttons[1].pressed ? 1 : 0
+                };
+                db.ref('drone/cmd').set(dados);
+            }
+            requestAnimationFrame(loop);
+        }
+        window.addEventListener("gamepadconnected", loop);
+    </script>
+</body>
+</html>
