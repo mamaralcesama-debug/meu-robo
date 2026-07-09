@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<body>
+    <h1>Bridge Drone (Celular)</h1>
+    <button id="btnConnect" style="padding:20px; font-size:20px;">Conectar ESP32</button>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-database-compat.js"></script>
+    <script>
+        let bleChar;
+        const db = firebase.initializeApp({ /* INSIRA AQUI O MESMO OBJETO DO FIREBASE */ }).database();
+
+        document.getElementById('btnConnect').onclick = async () => {
+            const device = await navigator.bluetooth.requestDevice({
+                filters: [{name: 'ESP32_Drone'}],
+                optionalServices: ['0000ffe0-0000-1000-8000-00805f9b34fb']
+            });
+            const server = await device.gatt.connect();
+            const service = await server.getPrimaryService('0000ffe0-0000-1000-8000-00805f9b34fb');
+            bleChar = await service.getCharacteristic('0000ffe1-0000-1000-8000-00805f9b34fb');
+            
+            db.ref('drone/cmd').on('value', (s) => {
+                const d = s.val();
+                const str = `${d.roll},${d.pitch},${d.throttle},${d.yaw},${d.mode},${d.fs}\n`;
+                bleChar.writeValue(new TextEncoder().encode(str));
+            });
+        };
+    </script>
+</body>
+</html>
