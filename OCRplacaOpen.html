@@ -2,15 +2,13 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>AutoGate LPR com Visualização</title>
+    <title>AutoGate Pro LPR</title>
     <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
     <style>
         body { background: #111; color: #fff; text-align: center; font-family: sans-serif; }
-        /* O contêiner permite sobrepor o vídeo e o canvas */
         #container { position: relative; display: inline-block; }
         #video, #overlay { width: 600px; border-radius: 10px; }
         #overlay { position: absolute; top: 0; left: 0; pointer-events: none; }
-        #status { margin: 20px; font-size: 1.2rem; }
     </style>
 </head>
 <body>
@@ -28,7 +26,9 @@
         const hiddenCanvas = document.getElementById('hiddenCanvas');
         const status = document.getElementById('status');
         
-        const PLACAS_AUTORIZADAS = ["RIO2A18", "XYZ5678"];
+        const PLACAS_AUTORIZADAS = ["ABC1234", "XYZ5678"];
+        const TELEGRAM_TOKEN = "SEU_TOKEN_AQUI"; 
+        const TELEGRAM_CHAT_ID = "SEU_CHAT_ID_AQUI";
 
         navigator.mediaDevices.getUserMedia({ video: true }).then(stream => video.srcObject = stream);
 
@@ -38,33 +38,48 @@
             
             hiddenCanvas.width = overlay.width = video.videoWidth;
             hiddenCanvas.height = overlay.height = video.videoHeight;
+            
+            // 1. Desenha no canvas oculto
             ctxHidden.drawImage(video, 0, 0);
             
-            // Limpa o retângulo anterior
+            // 2. Aplica filtro preto e branco (Melhora muito o OCR)
+            let imgData = ctxHidden.getImageData(0, 0, hiddenCanvas.width, hiddenCanvas.height);
+            let d = imgData.data;
+            for (let i = 0; i < d.length; i += 4) {
+                let avg = (d[i] + d[i + 1] + d[i + 2]) / 3;
+                d[i] = d[i + 1] = d[i + 2] = avg;
+            }
+            ctxHidden.putImageData(imgData, 0, 0);
+
+            // 3. OCR com foco no centro da imagem (ROI)
+            // Ajuste os valores de rectangle conforme onde a placa aparece na SUA câmera
+            const { data } = await Tesseract.recognize(hiddenCanvas, 'eng', {
+                rectangle: { left: 150, top: 200, width: 300, height: 150 }
+            });
+
             ctxOverlay.clearRect(0, 0, overlay.width, overlay.height);
-
-            const { data } = await Tesseract.recognize(hiddenCanvas, 'eng');
             
-            // Desenha retângulos em todas as palavras detectadas (para debug)
             data.words.forEach(word => {
-                const { x0, y0, x1, y1 } = word.bbox;
-                const isAuthorized = PLACAS_AUTORIZADAS.includes(word.text.trim());
-                
-                // Desenha retangulo verde se achar placa autorizada, cinza se não
-                ctxOverlay.strokeStyle = isAuthorized ? '#0f0' : '#888';
-                ctxOverlay.lineWidth = 3;
-                ctxOverlay.strokeRect(x0, y0, x1 - x0, y1 - y0);
-
-                if (isAuthorized) {
-                    status.innerText = "Placa autorizada: " + word.text;
-                    enviarComando();
+                let txt = word.text.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+                if (word.confidence > 60 && PLACAS_AUTORIZADAS.includes(txt)) {
+                    const { x0, y0, x1, y1 } = word.bbox;
+                    ctxOverlay.strokeStyle = '#0f0';
+                    ctxOverlay.lineWidth = 4;
+                    ctxOverlay.strokeRect(x0, y0, x1 - x0, y1 - y0);
+                    
+                    status.innerText = "Placa Detectada: " + txt;
+                    enviarComando(txt);
                 }
             });
         }
 
-        async function enviarComando() {
-            // Lógica de envio (aqui você chamaria o seu fetch do Telegram)
-            console.log("Comando enviado!");
+        async function enviarComando(placa) {
+            console.log("Enviando para Telegram:", placa);
+            await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: "/abrir_portao" })
+            });
         }
 
         setInterval(processar, 3000);
