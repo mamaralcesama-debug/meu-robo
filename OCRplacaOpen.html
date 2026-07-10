@@ -1,45 +1,82 @@
-// --- CONFIGURAÇÕES AJUSTADAS PARA MÚLTIPLAS PLACAS ---
-const PLACAS_AUTORIZADAS = ["ABC1234", "XYZ5678", "BRA9I99"]; // Adicione quantas quiser
-const TELEGRAM_TOKEN = "SEU_TOKEN_AQUI"; 
-const TELEGRAM_CHAT_ID = "SEU_CHAT_ID_AQUI";
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoGate LPR</title>
+    <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 20px; background: #222; color: white; }
+        #video { width: 100%; max-width: 600px; border: 5px solid #444; border-radius: 10px; margin-bottom: 20px; }
+        #status { font-size: 1.2rem; color: #00ff00; }
+    </style>
+</head>
+<body>
+    <h1>Sistema de Portão Inteligente</h1>
+    <video id="video" autoplay playsinline></video>
+    <canvas id="canvas" style="display:none;"></canvas>
+    <div id="status">Iniciando câmera...</div>
 
-// ... dentro da função processar() ...
+    <script>
+        // --- CONFIGURAÇÕES ---
+        const TELEGRAM_TOKEN = "SEU_TOKEN_AQUI"; 
+        const TELEGRAM_CHAT_ID = "SEU_CHAT_ID_AQUI";
+        const PLACAS_AUTORIZADAS = ["ABC1234", "XYZ5678", "BRA9I99"]; 
+        // ---------------------
 
-async function processar() {
-    if (processando) return;
-    processando = true;
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const status = document.getElementById('status');
+        let processando = false;
 
-    const context = canvas.getContext('2d');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    context.drawImage(video, 0, 0);
+        // Inicia a câmera traseira do celular
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+            .then(stream => { video.srcObject = stream; })
+            .catch(err => { status.innerText = "Erro na câmera: " + err; });
 
-    try {
-        const { data: { text } } = await Tesseract.recognize(canvas, 'eng');
-        console.log("Texto detectado:", text);
-        
-        // Verifica se alguma das placas da lista está contida no texto lido
-        const placaEncontrada = PLACAS_AUTORIZADAS.find(placa => text.includes(placa));
+        async function processar() {
+            if (processando) return;
+            processando = true;
 
-        if (placaEncontrada) {
-            status.innerText = `Placa ${placaEncontrada} autorizada! Abrindo...`;
-            
-            await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ 
-                    chat_id: TELEGRAM_CHAT_ID, 
-                    text: `/abrir_portao` // Ou personalize: `/abrir_${placaEncontrada}`
-                })
-            });
-            
-            // Pausa de segurança para não disparar várias vezes
-            await new Promise(r => setTimeout(r, 30000)); 
-        } else {
-            status.innerText = "Monitorando...";
+            // Desenha o frame atual no canvas para o OCR ler
+            const context = canvas.getContext('2d');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.drawImage(video, 0, 0);
+
+            try {
+                // Tesseract analisa o canvas
+                const { data: { text } } = await Tesseract.recognize(canvas, 'eng');
+                
+                // Verifica se alguma placa da lista está contida no texto lido
+                const placaEncontrada = PLACAS_AUTORIZADAS.find(p => text.includes(p));
+
+                if (placaEncontrada) {
+                    status.innerText = `Placa ${placaEncontrada} autorizada!`;
+                    
+                    // Envia comando para o Telegram (o NodeMCU está ouvindo este comando)
+                    await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ 
+                            chat_id: TELEGRAM_CHAT_ID, 
+                            text: "/abrir_portao" 
+                        })
+                    });
+                    
+                    // Pausa de 30 segundos para evitar disparos repetidos
+                    await new Promise(r => setTimeout(r, 30000));
+                } else {
+                    status.innerText = "Aguardando veículo autorizado...";
+                }
+            } catch (e) {
+                console.error("Erro no OCR:", e);
+            }
+            processando = false;
         }
-    } catch (e) {
-        console.error("Erro no OCR:", e);
-    }
-    processando = false;
-}
+
+        // Tenta ler a placa a cada 3 segundos
+        setInterval(processar, 3000);
+    </script>
+</body>
+</html>
