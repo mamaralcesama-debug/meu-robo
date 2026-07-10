@@ -6,16 +6,16 @@
     <title>AutoGate LPR</title>
     <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
     <style>
-        body { font-family: sans-serif; text-align: center; padding: 20px; background: #222; color: white; }
-        #video { width: 100%; max-width: 600px; border: 5px solid #444; border-radius: 10px; margin-bottom: 20px; }
-        #status { font-size: 1.2rem; color: #00ff00; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; padding: 20px; background: #1a1a1a; color: #eee; }
+        #video { width: 100%; max-width: 600px; border: 4px solid #444; border-radius: 12px; background: #000; }
+        #status { margin-top: 15px; font-size: 1.2rem; padding: 10px; border-radius: 8px; background: #333; }
     </style>
 </head>
 <body>
     <h1>Sistema de Portão Inteligente</h1>
     <video id="video" autoplay playsinline></video>
     <canvas id="canvas" style="display:none;"></canvas>
-    <div id="status">Iniciando câmera...</div>
+    <div id="status">Aguardando câmera...</div>
 
     <script>
         // --- CONFIGURAÇÕES ---
@@ -29,32 +29,34 @@
         const status = document.getElementById('status');
         let processando = false;
 
-        // Inicia a câmera traseira do celular
-        navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
-            .then(stream => { video.srcObject = stream; })
-            .catch(err => { status.innerText = "Erro na câmera: " + err; });
+        // Inicia a webcam/câmera (funciona em PC e Celular)
+        navigator.mediaDevices.getUserMedia({ 
+            video: { width: { ideal: 1280 }, height: { ideal: 720 } } 
+        })
+        .then(stream => { video.srcObject = stream; status.innerText = "Monitorando..."; })
+        .catch(err => { status.innerText = "Erro na câmera: " + err; });
 
         async function processar() {
             if (processando) return;
             processando = true;
 
-            // Desenha o frame atual no canvas para o OCR ler
+            // Desenha o frame atual no canvas
             const context = canvas.getContext('2d');
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
-            context.drawImage(video, 0, 0);
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
             try {
-                // Tesseract analisa o canvas
+                // Tesseract analisa a imagem
                 const { data: { text } } = await Tesseract.recognize(canvas, 'eng');
                 
-                // Verifica se alguma placa da lista está contida no texto lido
+                // Verifica se alguma das placas está no texto
                 const placaEncontrada = PLACAS_AUTORIZADAS.find(p => text.includes(p));
 
                 if (placaEncontrada) {
                     status.innerText = `Placa ${placaEncontrada} autorizada!`;
                     
-                    // Envia comando para o Telegram (o NodeMCU está ouvindo este comando)
+                    // Envia comando para o Telegram
                     await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
@@ -64,18 +66,19 @@
                         })
                     });
                     
-                    // Pausa de 30 segundos para evitar disparos repetidos
+                    // Pausa de 30 segundos para evitar disparos seguidos
                     await new Promise(r => setTimeout(r, 30000));
                 } else {
-                    status.innerText = "Aguardando veículo autorizado...";
+                    status.innerText = "Monitorando: aguardando veículo...";
                 }
             } catch (e) {
-                console.error("Erro no OCR:", e);
+                console.error("Erro OCR:", e);
+                status.innerText = "Erro ao processar imagem.";
             }
             processando = false;
         }
 
-        // Tenta ler a placa a cada 3 segundos
+        // Intervalo de leitura (ajuste conforme necessário, 3s é um bom começo)
         setInterval(processar, 3000);
     </script>
 </body>
