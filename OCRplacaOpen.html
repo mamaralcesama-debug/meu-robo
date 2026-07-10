@@ -1,88 +1,27 @@
-<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8">
-    <title>AutoGate Pro LPR</title>
-    <script src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js'></script>
-    <style>
-        body { background: #111; color: #fff; text-align: center; font-family: sans-serif; }
-        #container { position: relative; display: inline-block; }
-        #video, #overlay { width: 600px; border-radius: 10px; }
-        #overlay { position: absolute; top: 0; left: 0; pointer-events: none; }
-    </style>
-</head>
-<body>
-    <h1>Monitoramento de Placas</h1>
-    <div id="container">
-        <video id="video" autoplay playsinline></video>
-        <canvas id="overlay"></canvas>
-    </div>
-    <div id="status">Iniciando...</div>
-    <canvas id="hiddenCanvas" style="display:none;"></canvas>
+<script>
+    const video = document.getElementById('video');
+    const status = document.getElementById('status');
 
-    <script>
-        const video = document.getElementById('video');
-        const overlay = document.getElementById('overlay');
-        const hiddenCanvas = document.getElementById('hiddenCanvas');
-        const status = document.getElementById('status');
-        
-        const PLACAS_AUTORIZADAS = ["ABC1234", "XYZ5678"];
-        const TELEGRAM_TOKEN = "SEU_TOKEN_AQUI"; 
-        const TELEGRAM_CHAT_ID = "SEU_CHAT_ID_AQUI";
-
-        navigator.mediaDevices.getUserMedia({ video: true }).then(stream => video.srcObject = stream);
-
-        async function processar() {
-            const ctxOverlay = overlay.getContext('2d');
-            const ctxHidden = hiddenCanvas.getContext('2d');
-            
-            hiddenCanvas.width = overlay.width = video.videoWidth;
-            hiddenCanvas.height = overlay.height = video.videoHeight;
-            
-            // 1. Desenha no canvas oculto
-            ctxHidden.drawImage(video, 0, 0);
-            
-            // 2. Aplica filtro preto e branco (Melhora muito o OCR)
-            let imgData = ctxHidden.getImageData(0, 0, hiddenCanvas.width, hiddenCanvas.height);
-            let d = imgData.data;
-            for (let i = 0; i < d.length; i += 4) {
-                let avg = (d[i] + d[i + 1] + d[i + 2]) / 3;
-                d[i] = d[i + 1] = d[i + 2] = avg;
-            }
-            ctxHidden.putImageData(imgData, 0, 0);
-
-            // 3. OCR com foco no centro da imagem (ROI)
-            // Ajuste os valores de rectangle conforme onde a placa aparece na SUA câmera
-            const { data } = await Tesseract.recognize(hiddenCanvas, 'eng', {
-                rectangle: { left: 150, top: 200, width: 300, height: 150 }
-            });
-
-            ctxOverlay.clearRect(0, 0, overlay.width, overlay.height);
-            
-            data.words.forEach(word => {
-                let txt = word.text.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-                if (word.confidence > 60 && PLACAS_AUTORIZADAS.includes(txt)) {
-                    const { x0, y0, x1, y1 } = word.bbox;
-                    ctxOverlay.strokeStyle = '#0f0';
-                    ctxOverlay.lineWidth = 4;
-                    ctxOverlay.strokeRect(x0, y0, x1 - x0, y1 - y0);
-                    
-                    status.innerText = "Placa Detectada: " + txt;
-                    enviarComando(txt);
-                }
-            });
+    async function iniciar() {
+        try {
+            status.innerText = "Solicitando permissão da câmera...";
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            video.srcObject = stream;
+            video.onloadedmetadata = () => {
+                status.innerText = "Câmera iniciada. Monitorando...";
+                setInterval(processar, 3000);
+            };
+        } catch (err) {
+            status.innerText = "ERRO: " + err.message;
+            console.error("Erro na câmera:", err);
         }
+    }
 
-        async function enviarComando(placa) {
-            console.log("Enviando para Telegram:", placa);
-            await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: "/abrir_portao" })
-            });
-        }
+    // Chama a função de início
+    iniciar();
 
-        setInterval(processar, 3000);
-    </script>
-</body>
-</html>
+    async function processar() {
+        console.log("Tentando processar...");
+        // ... restante do seu código ...
+    }
+</script>
