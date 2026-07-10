@@ -1,0 +1,45 @@
+// --- CONFIGURAÇÕES AJUSTADAS PARA MÚLTIPLAS PLACAS ---
+const PLACAS_AUTORIZADAS = ["ABC1234", "XYZ5678", "BRA9I99"]; // Adicione quantas quiser
+const TELEGRAM_TOKEN = "SEU_TOKEN_AQUI"; 
+const TELEGRAM_CHAT_ID = "SEU_CHAT_ID_AQUI";
+
+// ... dentro da função processar() ...
+
+async function processar() {
+    if (processando) return;
+    processando = true;
+
+    const context = canvas.getContext('2d');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    context.drawImage(video, 0, 0);
+
+    try {
+        const { data: { text } } = await Tesseract.recognize(canvas, 'eng');
+        console.log("Texto detectado:", text);
+        
+        // Verifica se alguma das placas da lista está contida no texto lido
+        const placaEncontrada = PLACAS_AUTORIZADAS.find(placa => text.includes(placa));
+
+        if (placaEncontrada) {
+            status.innerText = `Placa ${placaEncontrada} autorizada! Abrindo...`;
+            
+            await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ 
+                    chat_id: TELEGRAM_CHAT_ID, 
+                    text: `/abrir_portao` // Ou personalize: `/abrir_${placaEncontrada}`
+                })
+            });
+            
+            // Pausa de segurança para não disparar várias vezes
+            await new Promise(r => setTimeout(r, 30000)); 
+        } else {
+            status.innerText = "Monitorando...";
+        }
+    } catch (e) {
+        console.error("Erro no OCR:", e);
+    }
+    processando = false;
+}
