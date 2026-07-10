@@ -2,29 +2,43 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>Controle PC Drone</title>
+    <title>Controle do Drone - PC</title>
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; background: #f0f0f0; }
+        .monitor { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }
+        .box { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .val { font-weight: bold; color: #2c3e50; }
+    </style>
 </head>
 <body>
-    <h1>Controle Remoto (PC)</h1>
-    <p>Conecte o Joystick e mova os eixos.</p>
+    <h1>Estação de Controle</h1>
+    <p>Status: <span id="status">Aguardando Joystick...</span></p>
+    
+    <div class="monitor">
+        <div class="box">Roll: <span id="val-roll" class="val">0</span></div>
+        <div class="box">Pitch: <span id="val-pitch" class="val">0</span></div>
+        <div class="box">Throttle: <span id="val-throttle" class="val">0</span></div>
+        <div class="box">Yaw: <span id="val-yaw" class="val">0</span></div>
+    </div>
+
     <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.0.0/firebase-database-compat.js"></script>
     <script>
-        const firebaseConfig = { 
-            apiKey: "AIzaSyAPJOs-lOFuA0zqZrJKmdrWrSr4Vf2dNx0",
-            authDomain: "robo-webrtc-7b32b.firebaseapp.com",
-            databaseURL: "https://robo-webrtc-7b32b-default-rtdb.firebaseio.com",
-            projectId: "robo-webrtc-7b32b",
-            storageBucket: "robo-webrtc-7b32b.firebasestorage.app",
-            messagingSenderId: "488205904754",
-            appId: "1:488205904754:web:52a95187cb2896da5d8beb" };
+        const firebaseConfig = { /* COLE AQUI SEU OBJETO DE CONFIGURAÇÃO DO FIREBASE */ };
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
+
+        function updateUI(d) {
+            document.getElementById('val-roll').innerText = d.roll;
+            document.getElementById('val-pitch').innerText = d.pitch;
+            document.getElementById('val-throttle').innerText = d.throttle;
+            document.getElementById('val-yaw').innerText = d.yaw;
+            document.getElementById('status').innerText = "Conectado e Transmitindo";
+        }
 
         function loop() {
             const gp = navigator.getGamepads()[0];
             if (gp) {
-                // Mapeamento: eixos 0,1,2,3 e botões 0 e 1 para modo e failsafe
                 const dados = {
                     roll: gp.axes[0].toFixed(2),
                     pitch: gp.axes[1].toFixed(2),
@@ -33,11 +47,17 @@
                     mode: gp.buttons[0].pressed ? 1 : 0,
                     fs: gp.buttons[1].pressed ? 1 : 0
                 };
+                
                 db.ref('drone/cmd').set(dados);
+                updateUI(dados);
             }
             requestAnimationFrame(loop);
         }
-        window.addEventListener("gamepadconnected", loop);
+
+        window.addEventListener("gamepadconnected", (e) => {
+            console.log("Joystick conectado:", e.gamepad.id);
+            loop();
+        });
     </script>
 </body>
 </html>
